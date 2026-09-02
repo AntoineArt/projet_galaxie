@@ -52,7 +52,7 @@ export class Hud {
   private pressed = new Set<string>();
   private lookTarget: THREE.Vector3 | null = null;
 
-  constructor(private state: AppState, private lod: { stats: LodStats }, _far: FarField, private controls: FlyControls) {
+  constructor(private state: AppState, private lod: { stats: LodStats; glow: { count: number } }, _far: FarField, private controls: FlyControls) {
     this.buildPanel();
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
@@ -146,6 +146,7 @@ export class Hud {
       `position R = ${fmtDist(R)}  z = ${fmtDist(camPat.z)}   vitesse ${fmtDist(this.controls.speed)}/s`,
       `flux min ${st.fluxMin.toExponential(1)} L☉/pc²   exposition ${s.exposure.toFixed(1)}${s.autoExposure ? ' (auto)' : ''}`,
       `noeud local : ${fmtBig(probe.nodeStars)} étoiles / (64 pc)³   à <10 pc : ${probe.within10pc}`,
+      `rendu : ${fmtBig(st.stars)} étoiles individuelles + ${this.lod.glow.count} lueurs de noeuds + 1,2 M points agrégés (2×10⁵ étoiles chacun)`,
     ];
     this.hud.textContent = lines.join('\n');
 
