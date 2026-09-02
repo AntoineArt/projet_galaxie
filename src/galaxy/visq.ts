@@ -18,6 +18,8 @@ export function visIndex(logL: number): number {
 
 export class VisTable {
   data = new Float32Array(NBINS * VIS_NL);
+  /** max sur les tranches, par seuil : borne rapide de K */
+  maxQ = new Float32Array(VIS_NL);
   time = -1;
   private q = new Float64Array(NQ);
   private lmax = new Float64Array(NQ);
@@ -55,6 +57,7 @@ export class VisTable {
         this.data[c * VIS_NL + k] = qv;
       }
     }
+    for (let k = 0; k < VIS_NL; k++) { let m = 0; for (let c = 0; c < NBINS; c++) m = Math.max(m, this.data[c * VIS_NL + k]); this.maxQ[k] = m; }
   }
 
   qVis(c: number, idx: number): number {

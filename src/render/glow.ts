@@ -56,6 +56,7 @@ export class GlowRenderer {
     this.buf.clearUpdateRanges();
     this.buf.addUpdateRange(0, need);
     this.geo.instanceCount = lod.glow.count;
+    (this.geo as unknown as { _maxInstanceCount: number })._maxInstanceCount = lod.glow.count;
     this.mesh.visible = lod.glow.count > 0;
   }
 }

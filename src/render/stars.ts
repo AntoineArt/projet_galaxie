@@ -35,6 +35,8 @@ export class StarRenderer {
         uSizeGain: { value: 0.85 },
         uDebug: { value: 0 },
         uSkip: { value: new THREE.Vector3(-1, -1, -1) },
+        uArmReject: { value: 1 },
+        uDebugBin: { value: 0 },
         uQTO: { value: new Float32Array(NBINS) },
         uVisTab: { value: new Float32Array(NBINS * VIS_NL) },
       },
@@ -84,6 +86,8 @@ export class StarRenderer {
       }
       (buf.array as Float32Array).set(bk.data.subarray(0, need));
       buf.count = bk.count;
+      // three.js fige _maxInstanceCount lors de la première configuration des attributs : on le resynchronise
+      (geo as unknown as { _maxInstanceCount: number })._maxInstanceCount = bk.count;
       buf.needsUpdate = true;
       buf.clearUpdateRanges();
       buf.addUpdateRange(0, need);

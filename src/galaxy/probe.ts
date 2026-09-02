@@ -5,7 +5,8 @@ import * as P from './params';
 import { Grid } from './grid';
 import { LodBuilder } from './lod';
 import { imfInv, stellarState, type StarState } from './stellar';
-import { NBINS, binCounts, binComponent, birthInBin, binMassQuantile, youngFraction } from './bins';
+import { NBINS, BIN_YOUNG0, YOUNG_ARM, YOUNG_BASE, binCounts, binComponent, birthInBin, binMassQuantile, youngFraction } from './bins';
+import { armFactor } from './density';
 
 function hashu(x: number): number {
   x = x >>> 0;
@@ -54,7 +55,7 @@ export class Probe {
     const wrel = (P.omega(Rc) - P.PATTERN_OMEGA) * diskFrac;
     const ax = (-wrel * cy) / size, ay = (wrel * cx) / size;
     const phx = fract(ax * time), phy = fract(ay * time);
-    binCounts(info.n[0], info.n[1], info.n[2], info.n[3], youngFraction(info.arm, time), this.binN);
+    binCounts(info.n[0], info.n[1], info.n[2], info.n[3], youngFraction(info.armMax, time), this.binN);
     let best = Infinity, bestI = -1, bestM = 0, bestTb = 0, bestComp = 0, bestBin = 0;
     const bp = new THREE.Vector3();
     let budget = 400000;
@@ -66,13 +67,17 @@ export class Probe {
       for (let j = 0; j < n && budget > 0; j++, budget--) {
         const i = (j + Math.imul(bin, 0x01000193)) >>> 0;
         const base = hashu(seed ^ (Math.imul(i, 0x9e3779b9) >>> 0));
-        const r0 = rnd(hashu(base + 1)), r2 = rnd(hashu(base + 3));
+        const r0 = rnd(hashu(base + 1)), r2 = rnd(hashu(base + 3)), r5 = rnd(hashu(base + 6));
         const r3 = rnd(hashu(base + 4)), r4 = rnd(hashu(base + 5));
         const r6 = rnd(hashu(base + 7)), r8 = rnd(hashu(base + 9)), r9 = rnd(hashu(base + 10));
         const ux = warp1(fract(r2 + phx + (r8 - 0.5) * dispScale * time), info.grad[0]);
         const uy = warp1(fract(r3 + phy + (r9 - 0.5) * dispScale * time), info.grad[1]);
         const uz = warp1(r4, info.grad[2]);
         const px = ox + ux * size, py = oy + uy * size, pz = oz + uz * size;
+        if (bin >= BIN_YOUNG0) {
+          const a = armFactor(Math.sqrt(px * px + py * py), Math.atan2(py, px));
+          if (r5 > (YOUNG_BASE + YOUNG_ARM * a) / (YOUNG_BASE + YOUNG_ARM * info.armMax)) continue;
+        }
         const dx = px - camPat.x, dy = py - camPat.y, dz = pz - camPat.z;
         const d2 = dx * dx + dy * dy + dz * dz;
         if (d2 > 100 && d2 > best) continue;

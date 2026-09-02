@@ -88,7 +88,8 @@ const viewRot = new THREE.Matrix4();
 function needRebuild(): boolean {
   const smallest = lod.stats.nodes > 0 ? smallestNode : 64;
   const moved = camPat.distanceTo(lastCamPat);
-  if (moved > Math.max(0.3, 0.04 * smallest)) return true;
+  // parallaxe : le déplacement compte relativement au noeud le plus proche
+  if (moved > Math.max(0.3, 0.04 * smallest, 0.03 * lod.stats.nearest)) return true;
   // les phases de dérive et les tables de population restent valables sur ~0.4 % de l'âge courant
   if (Math.abs(state.time - tRef) > Math.max(0.5, 0.004 * state.time)) return true;
   if (controls.quaternion.angleTo(lastQuat) > 0.08) return true;

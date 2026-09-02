@@ -2,7 +2,7 @@
 // avec nombre d'étoiles visibles K par noeud (les K plus massives selon l'IMF stratifiée).
 import * as THREE from 'three';
 import * as P from './params';
-import { density } from './density';
+import { armFactor, density } from './density';
 import { Grid, NC } from './grid';
 import { NBINS, binCounts, computeQTO, nodeK, youngFraction } from './bins';
 import { VisTable, visIndex } from './visq';
@@ -17,9 +17,9 @@ export const GLOW_FAR = 4.5;
 /** distance (pc) sous laquelle un noeud inclut aussi les résidus (naines blanches, étoiles à neutrons) */
 export const NEAR_DEAD = 150;
 
-interface NodeInfo { n: Float32Array; arm: number; grad: Float32Array; total: number }
+interface NodeInfo { n: Float32Array; arm: number; armMax: number; grad: Float32Array; total: number }
 
-export interface LodStats { nodes: number; stars: number; fluxMin: number; iterations: number; ms: number; converged: boolean }
+export interface LodStats { nodes: number; stars: number; fluxMin: number; iterations: number; ms: number; converged: boolean; nearest: number }
 
 const TH = 0.75; // seuil de subdivision : taille/distance
 
@@ -37,7 +37,8 @@ export class LodBuilder {
   private binN = new Float64Array(NBINS);
   private visIdx = 0;
   private qVisFn = (c: number) => this.vis.qVis(c, this.visIdx);
-  stats: LodStats = { nodes: 0, stars: 0, fluxMin: 0, iterations: 0, ms: 0, converged: false };
+  stats: LodStats = { nodes: 0, stars: 0, fluxMin: 0, iterations: 0, ms: 0, converged: false, nearest: 1e9 };
+  private nearestD = 1e9;
   private frustum = new THREE.Frustum();
   private tmpV = new THREE.Vector3();
   private tmpD = new Float64Array(5);
@@ -89,7 +90,16 @@ export class LodBuilder {
       }
     }
     for (let k = 0; k < 3; k++) grad[k] = Math.max(-1.9, Math.min(1.9, grad[k]));
-    info = { n, arm, grad, total };
+    // facteur de bras maximal sur le noeud (centre + coins horizontaux) : borne pour le compte d'étoiles jeunes
+    let armMax = arm;
+    if (n[1] > 0) {
+      const cx = -P.ROOT_HALF + (ix + 0.5) * size, cy = -P.ROOT_HALF + (iy + 0.5) * size, h = size * 0.5;
+      for (const [ox, oy] of [[-h, -h], [h, -h], [-h, h], [h, h], [0, -h], [0, h], [-h, 0], [h, 0]]) {
+        const x = cx + ox, y = cy + oy;
+        armMax = Math.max(armMax, armFactor(Math.sqrt(x * x + y * y), Math.atan2(y, x)));
+      }
+    }
+    info = { n, arm, armMax, grad, total };
     this.cache.set(key, info);
     return info;
   }
@@ -108,21 +118,28 @@ export class LodBuilder {
     let iter = 0;
     let stars = 0, nodes = 0;
     this.fluxMin = this.fluxMinNext;
+    // asservissement du seuil : K ~ fluxMin^-alpha, alpha estimé par sécante entre deux itérations
+    let prevF = -1, prevK = -1, alpha = 0.45;
     for (;;) {
       for (const b of this.buckets) b.count = 0;
       this.glow.count = 0;
+      this.nearestD = 1e9;
       const r = this.traverse(camPat, theta, anchor, tRef);
       stars = r.stars; nodes = r.nodes; iter++;
       const ratio = stars / this.budget;
-      const needAdjust = ratio > 1.15 || (ratio < 0.5 && this.fluxMin > 1e-9);
+      const needAdjust = ratio > 1.15 || (ratio < 0.6 && this.fluxMin > 1e-9);
       if (!needAdjust) { this.fluxMinNext = this.fluxMin; break; }
-      // K ~ Lmin^-0.37 environ -> fluxMin ~ ratio^2.7 ; amorti
-      const f = Math.pow(Math.max(ratio, 0.05), 2.2);
-      const next = Math.max(1e-9, Math.min(1e3, this.fluxMin * Math.max(0.3, Math.min(8, f))));
+      if (prevF > 0 && prevK > 0 && stars > 0 && prevK !== stars && prevF !== this.fluxMin) {
+        const est = -Math.log(stars / prevK) / Math.log(this.fluxMin / prevF);
+        if (Number.isFinite(est)) alpha = Math.max(0.15, Math.min(1.5, est));
+      }
+      prevF = this.fluxMin; prevK = stars;
+      const f = Math.pow(Math.max(ratio, 0.02), 1 / alpha);
+      const next = Math.max(1e-9, Math.min(1e3, this.fluxMin * Math.max(0.1, Math.min(30, f))));
       if (iter >= 4) { this.fluxMinNext = next; break; }
       this.fluxMin = next;
     }
-    this.stats = { nodes, stars, fluxMin: this.fluxMin, iterations: iter, ms: performance.now() - t0, converged: this.fluxMinNext === this.fluxMin };
+    this.stats = { nodes, stars, fluxMin: this.fluxMin, iterations: iter, ms: performance.now() - t0, converged: this.fluxMinNext === this.fluxMin, nearest: this.nearestD };
     return this.stats;
   }
 
@@ -208,10 +225,11 @@ export class LodBuilder {
       this.visIdx = visIndex(Math.log10(this.fluxMin * dEff * dEff));
       const nb = this.binN;
       const arm = info.arm;
-      const y = youngFraction(arm, tRef);
+      const y = youngFraction(info.armMax, tRef);
       binCounts(info.n[0], info.n[1], info.n[2], info.n[3], y, nb);
       const includeDead = d < NEAR_DEAD;
-      let K = nodeK(nb, this.qTO, this.qVisFn, includeDead);
+      // borne rapide : si même la tranche la plus favorable ne donne aucune étoile, inutile de détailler
+      let K = info.total * this.vis.maxQ[this.visIdx] < 1 ? 0 : nodeK(nb, this.qTO, this.qVisFn, includeDead);
       const glows = d < GLOW_FAR * size;
       if (K < 1 && !glows) continue;
       // subdivision forcée : un cube ne peut pas représenter la structure du disque (échelle de hauteur 300 pc)
@@ -222,7 +240,7 @@ export class LodBuilder {
         }
         continue;
       }
-      if (glows) this.pushGlow(cx, cy, cz, size, d, dEff, info, y);
+      if (glows) this.pushGlow(cx, cy, cz, size, d, dEff, info, youngFraction(arm, tRef));
       if (K < 1) continue;
       K = Math.min(K, 1 << (NUM_BUCKETS - 1));
       const b = Math.min(NUM_BUCKETS - 1, Math.max(0, Math.ceil(Math.log2(K))));
@@ -238,9 +256,10 @@ export class LodBuilder {
       inst[5] = info.n[0]; inst[6] = info.n[1]; inst[7] = info.n[2];
       inst[8] = info.n[3]; inst[9] = y; inst[10] = this.visIdx; inst[11] = 0;
       inst[12] = info.grad[0]; inst[13] = info.grad[1]; inst[14] = info.grad[2]; inst[15] = ax;
-      inst[16] = ay; inst[17] = px - Math.floor(px); inst[18] = py - Math.floor(py); inst[19] = arm + (includeDead ? 2 : 0);
+      inst[16] = ay; inst[17] = px - Math.floor(px); inst[18] = py - Math.floor(py); inst[19] = info.armMax + (includeDead ? 2 : 0);
       this.push(b, inst);
       stars += K; nodes++;
+      if (d < this.nearestD) this.nearestD = d;
     }
     return { stars, nodes };
   }

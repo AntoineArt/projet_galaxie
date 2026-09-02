@@ -5,7 +5,7 @@ in vec4 aA; // origine du cube (relative à l'ancre, réf. motif) xyz, taille
 in vec4 aB; // graine, N bulbe, N mince, N épais
 in vec4 aC; // N halo, fraction jeune, index de seuil (table uVis), -
 in vec4 aD; // gradient de densité (x,y,z), dérive ax
-in vec4 aE; // dérive ay, phase x, phase y, facteur bras (+2 si les résidus sont inclus)
+in vec4 aE; // dérive ay, phase x, phase y, facteur bras max du noeud (+2 si les résidus sont inclus)
 
 uniform mat4 uProj;
 uniform mat4 uView; // rotation seule
@@ -20,6 +20,8 @@ uniform float uPixelScale; // pixels par unité d'angle
 uniform float uMaxSize;
 uniform float uSizeGain;
 uniform float uQTO[NBINS]; // quantile de turnoff par tranche
+uniform float uDebugBin; // 1 : couleur par tranche (rouge jeunes, vert disque mince, bleu autres)
+uniform float uArmReject; // 1 : rejet selon le profil de bras (étoiles jeunes)
 uniform vec3 uSkip; // (graine, tranche, index) de l'étoile rendue par le système stellaire (résolue à part)
 uniform vec4 uVisTab[NBINS * 16]; // quantile visible [tranche][seuil], 64 seuils par tranche
 
@@ -77,7 +79,16 @@ void main() {
     if (v < acc + len) { bin = c; j = a + (v - acc); N = n; break; }
     acc += len;
   }
-  if (bin < 0) { cull(); return; }
+  if (bin < 0) {
+    if (uDebugBin > 2.5) {
+      // débogage : sommet sans tranche -> point rouge au centre du noeud
+      vec3 pc = uAnchorRel + aA.xyz + vec3(0.5 * aA.w);
+      float cs0 = cos(uTheta), sn0 = sin(uTheta);
+      vec3 relc = vec3(cs0 * pc.x - sn0 * pc.y, sn0 * pc.x + cs0 * pc.y, pc.z);
+      gl_Position = uProj * (uView * vec4(relc, 1.0)); gl_PointSize = 3.0; vSize = 3.0; vIntensity = 0.3; vColor = vec3(1.0, 0.0, 0.0); return;
+    }
+    cull(); return;
+  }
   if (aB.x == uSkip.x && float(bin) == uSkip.y && j == uSkip.z) { cull(); return; }
 
   uint seed = uint(aB.x);
@@ -85,7 +96,7 @@ void main() {
   uint base = hashu(seed ^ (i * 0x9E3779B9u));
   float r0 = rnd(hashu(base + 1u)), r2 = rnd(hashu(base + 3u));
   float r3 = rnd(hashu(base + 4u)), r4 = rnd(hashu(base + 5u));
-  float r6 = rnd(hashu(base + 7u)), r8 = rnd(hashu(base + 9u)), r9 = rnd(hashu(base + 10u));
+  float r5 = rnd(hashu(base + 6u)), r6 = rnd(hashu(base + 7u)), r8 = rnd(hashu(base + 9u)), r9 = rnd(hashu(base + 10u));
 
   // masse : quantile décroissant dans la tranche
   float q = 1.0 - (j + r0) / N;
@@ -96,6 +107,7 @@ void main() {
   float age = uTime - tb;
   vec3 st = stellarState(m, age);
   float L = st.x;
+  if (uDebugBin > 1.5) L = 1e6;
   if (L <= 0.0) { cull(); return; }
 
   // position : dérive azimutale + repliement + déformation par gradient
@@ -107,13 +119,21 @@ void main() {
   vec3 u = vec3(fract(r2 + ph.x), fract(r3 + ph.y), r4);
   u = vec3(warp1(u.x, aD.x), warp1(u.y, aD.y), warp1(u.z, aD.z));
   vec3 p = uAnchorRel + aA.xyz + u * size; // relatif caméra, réf. motif
+  if (bin >= 21 && uArmReject > 0.5) {
+    // étoiles jeunes : le compte du noeud suppose le facteur de bras maximal ; rejet selon le profil local exact
+    vec3 pa = uCamPat + p;
+    float armMax = aE.w >= 2.0 ? aE.w - 2.0 : aE.w;
+    float a = armFactor(length(pa.xy), atan(pa.y, pa.x));
+    float keep = (YOUNG_BASE + YOUNG_ARM * a) / (YOUNG_BASE + YOUNG_ARM * armMax);
+    if (r5 > keep && uDebugBin < 1.5) { cull(); return; }
+  }
   float cs = cos(uTheta), sn = sin(uTheta);
   vec3 rel = vec3(cs * p.x - sn * p.y, sn * p.x + cs * p.y, p.z);
 
   float d2 = dot(rel, rel);
   float d = sqrt(d2);
   float flux = L / max(d2, 1e-10);
-  if (flux < uFluxMin * 0.5) { cull(); return; }
+  if (flux < uFluxMin * 0.5 && uDebugBin < 1.5) { cull(); return; }
   vec3 trans = dustTransmission(uCamPat, p);
   flux *= trans.g;
 
@@ -128,5 +148,6 @@ void main() {
   vSize = sz;
   vIntensity = b / max(1.0, 0.35 * sz * sz);
   vColor = blackbody(st.y) * trans / max(trans.g, 1e-4);
+  if (uDebugBin > 0.5) { vColor = uDebugBin > 2.5 ? vec3(0.1, 1.0, 0.1) : (bin >= 21 ? vec3(1.0, 0.1, 0.1) : (bin >= 4 ? vec3(0.1, 1.0, 0.1) : vec3(0.2, 0.3, 1.0))); vIntensity = 0.5; }
   if (st.z == 8.0) vColor = mix(vColor, vec3(1.0, 0.9, 0.8), 0.5);
 }

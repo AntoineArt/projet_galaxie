@@ -7,7 +7,8 @@ uniform float uDustOn;
 #define DUST_HZ 110.0
 #define DUST_HR 3200.0
 
-float dustArm(float R, float phi) {
+// facteur de bras (identique à density.ts : armFactor)
+float armFactor(float R, float phi) {
   if (R < 1960.0) return 0.0;
   float base = ARM_K * log(R / ARM_R0);
   float f = 0.0;
@@ -45,7 +46,7 @@ float dustTau(vec3 cam, vec3 rel) {
     float za = cam.z + m * sa, zb = cam.z + m * sb;
     float zint = abs(m) > 1e-4 ? (dustH(zb) - dustH(za)) / m : exp(-abs(za) / DUST_HZ) * (sb - sa);
     float phi = atan(pm.y, pm.x);
-    float arm = dustArm(R * 1.04, phi + 0.03);
+    float arm = armFactor(R * 1.04, phi + 0.03);
     float hole = 1.0 - exp(-(R * R) / (2500.0 * 2500.0));
     float radial = exp(-R / DUST_HR) * hole * (0.25 + 1.6 * arm);
     tau += radial * zint;
