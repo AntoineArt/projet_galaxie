@@ -34,6 +34,7 @@ export class StarRenderer {
         uMaxSize: { value: 48 },
         uSizeGain: { value: 0.85 },
         uDebug: { value: 0 },
+        uSkip: { value: new THREE.Vector3(-1, -1, -1) },
         uQTO: { value: new Float32Array(NBINS) },
         uVisTab: { value: new Float32Array(NBINS * VIS_NL) },
       },

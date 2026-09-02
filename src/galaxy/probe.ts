@@ -23,6 +23,7 @@ const fract = (x: number) => x - Math.floor(x);
 
 export interface NearStar {
   dist: number; mass: number; age: number; birth: number; comp: number; state: StarState; pos: THREE.Vector3; index: number;
+  seed: number; bin: number; id: string;
 }
 
 export class Probe {
@@ -54,7 +55,7 @@ export class Probe {
     const ax = (-wrel * cy) / size, ay = (wrel * cx) / size;
     const phx = fract(ax * time), phy = fract(ay * time);
     binCounts(info.n[0], info.n[1], info.n[2], info.n[3], youngFraction(info.arm, time), this.binN);
-    let best = Infinity, bestI = -1, bestM = 0, bestTb = 0, bestComp = 0;
+    let best = Infinity, bestI = -1, bestM = 0, bestTb = 0, bestComp = 0, bestBin = 0;
     const bp = new THREE.Vector3();
     let budget = 400000;
     for (let bin = 0; bin < NBINS && budget > 0; bin++) {
@@ -80,12 +81,12 @@ export class Probe {
         const tb = birthInBin(bin, time, r6 * 0.9999);
         if (time - tb < 0) continue;
         if (d2 <= 100) this.within10pc++;
-        if (d2 < best) { best = d2; bestI = j; bestM = m; bestTb = tb; bestComp = binComponent(bin); bp.set(px, py, pz); }
+        if (d2 < best) { best = d2; bestI = j; bestM = m; bestTb = tb; bestComp = binComponent(bin); bestBin = bin; bp.set(px, py, pz); }
       }
     }
     if (bestI >= 0) {
       const st = stellarState(bestM, time - bestTb, this.tmpState);
-      this.nearest = { dist: Math.sqrt(best), mass: bestM, age: time - bestTb, birth: bestTb, comp: bestComp, state: { ...st }, pos: bp, index: bestI };
+      this.nearest = { dist: Math.sqrt(best), mass: bestM, age: time - bestTb, birth: bestTb, comp: bestComp, state: { ...st }, pos: bp, index: bestI, seed, bin: bestBin, id: `${seed}-${bestBin}-${bestI}` };
     }
   }
 }

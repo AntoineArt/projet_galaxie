@@ -5,7 +5,7 @@ import starFrag from './shaders/star.frag.glsl?raw';
 import { vertexShader, fragmentShader, dustUniforms } from './shaderlib';
 import { Grid } from '../galaxy/grid';
 import { density } from '../galaxy/density';
-import { buildPopTable, samplePop, type PopTable } from '../galaxy/stellar';
+import { buildPopTable, samplePop, youngPopMean, type PopTable } from '../galaxy/stellar';
 
 function mulberry(seed: number): () => number {
   let a = seed >>> 0;
@@ -85,6 +85,36 @@ export class Objects {
       this.clouds.push(this.makeCloud(pos.subarray(0, k * 3), L.subarray(0, k), col.subarray(0, k * 3), rad.subarray(0, k), 1, 160));
     }
 
+    // --- amas ouverts jeunes dans les bras (population jeune, dissous après ~300 Ma : rendus fixes, lumière jeune)
+    {
+      const NO = 2500, PER = 160;
+      const young = youngPopMean();
+      const pos = new Float32Array(NO * PER * 3), L = new Float32Array(NO * PER), col = new Float32Array(NO * PER * 3), rad = new Float32Array(NO * PER);
+      const d = new Float64Array(5);
+      let k = 0, nc = 0, tries = 0;
+      while (nc < NO && tries < NO * 400) {
+        tries++;
+        const x = (rng() * 2 - 1) * 15000, y = (rng() * 2 - 1) * 15000, z = gauss(rng) * 70;
+        density(x, y, z, d);
+        const w = d[1] * (0.05 + d[4]) * Math.exp(Math.sqrt(x * x + y * y) / 5000);
+        if (rng() * 0.003 > w) continue;
+        const members = 100 + Math.pow(10, 1.5 + rng() * 1.8);
+        const rc = 1.5 + rng() * 3;
+        for (let i = 0; i < PER; i++) {
+          const u = rng();
+          const rr = rc / Math.sqrt(Math.pow(Math.max(u, 1e-6), -2 / 3) - 1);
+          const c2 = rng() * 2 - 1, p2 = rng() * 2 * Math.PI, s2 = Math.sqrt(1 - c2 * c2);
+          pos[k * 3] = x + rr * s2 * Math.cos(p2); pos[k * 3 + 1] = y + rr * s2 * Math.sin(p2); pos[k * 3 + 2] = z + rr * c2 * 0.7;
+          L[k] = (members * young.L) / PER;
+          col[k * 3] = young.rgb[0]; col[k * 3 + 1] = young.rgb[1]; col[k * 3 + 2] = young.rgb[2];
+          rad[k] = 0;
+          k++;
+        }
+        nc++;
+      }
+      this.clouds.push(this.makeCloud(pos.subarray(0, k * 3), L.subarray(0, k), col.subarray(0, k * 3), rad.subarray(0, k), 0, 24));
+    }
+
     // --- Sgr A* : source compacte au centre
     {
       const pos = new Float32Array([0, 0, 0, 0, 0, 0]);
@@ -130,7 +160,7 @@ export class Objects {
     const haloL = this.tmp[0];
     const diskOn = Math.min(1, Math.max(0, (time - 3000) / 1000));
     const globOn = Math.min(1, Math.max(0, (time - 300) / 500));
-    const scales = [haloL * globOn, diskOn, 1];
+    const scales = [haloL * globOn, diskOn, diskOn, 1];
     this.clouds.forEach((c, i) => {
       const u = c.mat.uniforms;
       u.uProj.value.copy(camera.projectionMatrix);

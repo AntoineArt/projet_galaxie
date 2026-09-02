@@ -20,6 +20,7 @@ uniform float uPixelScale; // pixels par unité d'angle
 uniform float uMaxSize;
 uniform float uSizeGain;
 uniform float uQTO[NBINS]; // quantile de turnoff par tranche
+uniform vec3 uSkip; // (graine, tranche, index) de l'étoile rendue par le système stellaire (résolue à part)
 uniform vec4 uVisTab[NBINS * 16]; // quantile visible [tranche][seuil], 64 seuils par tranche
 
 out vec3 vColor;
@@ -77,6 +78,7 @@ void main() {
     acc += len;
   }
   if (bin < 0) { cull(); return; }
+  if (aB.x == uSkip.x && float(bin) == uSkip.y && j == uSkip.z) { cull(); return; }
 
   uint seed = uint(aB.x);
   uint i = uint(j) + uint(bin) * 0x01000193u;

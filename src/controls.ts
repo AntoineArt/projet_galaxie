@@ -27,7 +27,7 @@ export class FlyControls {
     });
     window.addEventListener('wheel', (e) => {
       this.speed *= Math.exp(-e.deltaY * 0.002);
-      this.speed = Math.max(1e-3, Math.min(2e5, this.speed));
+      this.speed = Math.max(1e-8, Math.min(2e5, this.speed));
     }, { passive: true });
     this.updateQuat();
   }

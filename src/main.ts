@@ -15,6 +15,8 @@ import { Probe } from './galaxy/probe';
 import { Objects } from './render/objects';
 import { GlowRenderer } from './render/glow';
 import { Population } from './galaxy/population';
+import { SystemRenderer } from './render/system';
+import { buildSystem, type StarSystem } from './galaxy/system';
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -26,7 +28,7 @@ renderer.info.autoReset = false;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.001, 5e5);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 1e-7, 5e5); // near = 0,02 UA : pas de test de profondeur, seule la coupure compte
 camera.position.set(0, 0, 0);
 
 const composer = new EffectComposer(renderer);
@@ -45,7 +47,8 @@ const stars = new StarRenderer();
 const glow = new GlowRenderer();
 const far = new FarField(grid, pop);
 const objects = new Objects(grid);
-scene.add(far.group, glow.mesh, stars.group, objects.group);
+const systemR = new SystemRenderer();
+scene.add(far.group, glow.mesh, stars.group, objects.group, systemR.group);
 document.getElementById('loading')!.remove();
 
 // --- état
@@ -59,14 +62,18 @@ const state = {
   showFar: true,
   showDust: true,
   bloom: 0.55,
+  showOrbits: true,
 };
-(window as unknown as { galaxy: unknown }).galaxy = { state, lod, stars, far, objects, glow, controls: null as unknown };
+let system: StarSystem | null = null;
+(window as unknown as { galaxy: unknown }).galaxy = { state, lod, stars, far, objects, glow, probe: null as unknown, systemR: null as unknown, camera, THREE, P, controls: null as unknown };
 const controls = new FlyControls(renderer.domElement);
 (window as unknown as { galaxy: { controls: unknown } }).galaxy.controls = controls;
 controls.position.set(P.SUN_POS.x, P.SUN_POS.y, P.SUN_POS.z);
 controls.lookAt(new THREE.Vector3(0, 0, 0));
 const hud = new Hud(state, lod, far, controls);
 const probe = new Probe(grid, lod);
+(window as unknown as { galaxy: { probe: unknown; systemR: unknown } }).galaxy.probe = probe;
+(window as unknown as { galaxy: { probe: unknown; systemR: unknown } }).galaxy.systemR = systemR;
 
 // --- rebuild LOD
 const anchor = new THREE.Vector3();
@@ -74,7 +81,7 @@ const camPat = new THREE.Vector3();
 const lastCamPat = new THREE.Vector3(1e9, 0, 0);
 const lastQuat = new THREE.Quaternion();
 let tRef = state.time;
-const cullCam = new THREE.PerspectiveCamera(60, 1, 0.001, 5e5);
+const cullCam = new THREE.PerspectiveCamera(60, 1, 1e-7, 5e5);
 const projView = new THREE.Matrix4();
 const viewRot = new THREE.Matrix4();
 
@@ -126,7 +133,7 @@ function frame(): void {
 
   if (!state.paused) state.time = Math.max(0, state.time + state.timeSpeed * dt);
   controls.update(dt);
-  hud.handleKeys(controls, camera);
+  hud.handleKeys(controls, probe);
 
   const theta = P.PATTERN_OMEGA * state.time;
   const c = Math.cos(-theta), s = Math.sin(-theta);
@@ -141,6 +148,7 @@ function frame(): void {
   if (needRebuild()) rebuild(theta);
 
   exposurePass.enabled = state.autoExposure;
+  exposurePass.target = system ? 0.025 : 0.12; // près d'une étoile : ciel éblouissant, exposition réduite
   if (state.autoExposure) state.exposure = exposurePass.update(dt);
 
   anchorRel.copy(anchor).sub(camPat);
@@ -193,7 +201,17 @@ function frame(): void {
   renderer.info.reset();
   composer.render();
   probe.update(camPat, theta, state.time, now);
-  hud.update(state, camPat, probe, renderer.info);
+  // système stellaire résolu : étoile la plus proche à moins de 0,05 pc (~10 000 UA)
+  const near = probe.nearest;
+  if (near && near.dist < 0.05) {
+    if (!system || system.id !== near.id || Math.abs(system.age - near.age) > 0) {
+      const seedHash = (near.seed ^ Math.imul(near.bin + 1, 0x01000193) ^ Math.imul(near.index + 1, 0x9e3779b9)) >>> 0;
+      system = buildSystem(near.id, seedHash, near.mass, near.age);
+    }
+    su.uSkip.value.set(near.seed, near.bin, near.index);
+  } else { system = null; su.uSkip.value.set(-1, -1, -1); }
+  systemR.update(system, near ? near.pos : camPat, theta, controls.position, camera, viewRot, state.time, state.exposure, pixelScale, state.showOrbits);
+  hud.update(state, camPat, probe, renderer.info, system);
 }
 
 addEventListener('resize', () => {

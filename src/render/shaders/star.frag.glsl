@@ -21,5 +21,5 @@ void main() {
   // compression douce : garde la teinte des étoiles brillantes (le coeur sature, le halo reste coloré)
   float I = vIntensity * a;
   float Ic = 3.0 * I / (1.0 + I / 3.0);
-  fragColor = vec4(vColor * Ic + vec3(1.0) * max(I - Ic, 0.0) * 0.15, 1.0);
+  fragColor = vec4(min(vColor * Ic + vec3(1.0) * max(I - Ic, 0.0) * 0.15, 600.0), 1.0); // plafond : cible en demi-flottants
 }
