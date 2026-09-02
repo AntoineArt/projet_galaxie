@@ -54,9 +54,33 @@ float dustTau(vec3 cam, vec3 rel) {
   return tau * uKappa;
 }
 
+// variante rapide (objets nombreux) : 2 segments, sans modulation par les bras
+float dustTauFast(vec3 cam, vec3 rel) {
+  float d = length(rel);
+  if (d < 1.0) return 0.0;
+  vec3 dir = rel / d;
+  float m = dir.z;
+  float tau = 0.0;
+  for (int k = 0; k < 2; k++) {
+    float sa = d * float(k) * 0.5, sb = d * float(k + 1) * 0.5;
+    vec3 pm = cam + dir * (0.5 * (sa + sb));
+    float R = length(pm.xy);
+    if (R > 20000.0) continue;
+    float za = cam.z + m * sa, zb = cam.z + m * sb;
+    float zint = abs(m) > 1e-4 ? (dustH(zb) - dustH(za)) / m : exp(-abs(za) / DUST_HZ) * (sb - sa);
+    float hole = 1.0 - exp(-(R * R) / (2500.0 * 2500.0));
+    tau += exp(-R / DUST_HR) * hole * 0.6 * zint;
+  }
+  return tau * uKappa;
+}
+
 // transmission RGB (rougissement : loi ~ 1/lambda)
 vec3 dustTransmission(vec3 cam, vec3 rel) {
   if (uDustOn < 0.5) return vec3(1.0);
+#ifdef EXT_FAST
+  float tau = dustTauFast(cam, rel);
+#else
   float tau = dustTau(cam, rel);
+#endif
   return exp(-tau * vec3(0.75, 1.0, 1.45));
 }

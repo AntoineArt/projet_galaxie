@@ -1,0 +1,20 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch({ args: ['--use-angle=metal', '--ignore-gpu-blocklist', '--enable-gpu', '--disable-frame-rate-limit', '--disable-gpu-vsync'], headless: true });
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+await page.goto('http://localhost:5173/', { waitUntil: 'load' });
+await page.waitForFunction(() => !document.getElementById('loading'), null, { timeout: 60000 });
+const measure = async (label, setup) => {
+  await page.evaluate(setup);
+  await page.waitForTimeout(1500);
+  const fps = await page.evaluate(() => new Promise((res) => { let n = 0; const t0 = performance.now(); const f = () => { n++; if (performance.now() - t0 < 2500) requestAnimationFrame(f); else res((n * 1000) / (performance.now() - t0)); }; requestAnimationFrame(f); }));
+  console.log(label.padEnd(40), fps.toFixed(1), 'fps');
+};
+await page.keyboard.press('KeyG');
+await measure('galaxy warmup', () => {});
+await measure('galaxy all', () => {});
+await measure('galaxy stars hidden', () => { galaxy.stars.group.visible = false; });
+await measure('galaxy stars+far hidden', () => { galaxy.far.starMat.visible = false; });
+await measure('galaxy stars+far+dust hidden', () => { galaxy.far.dustMat.visible = false; });
+await measure('galaxy stars+far+dust+objects hidden', () => { galaxy.objects.group.visible = false; });
+await measure('galaxy + no bloom', () => { galaxy.state.bloom = 0; });
+await browser.close();

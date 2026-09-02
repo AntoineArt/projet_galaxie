@@ -70,8 +70,10 @@ let system: StarSystem | null = null;
 (window as unknown as { galaxy: unknown }).galaxy = { state, lod, lodLocal, stars, far, objects, glow, probe: null as unknown, systemR: null as unknown, camera, THREE, P, controls: null as unknown };
 const controls = new FlyControls(renderer.domElement);
 (window as unknown as { galaxy: { controls: unknown } }).galaxy.controls = controls;
-controls.position.set(P.SUN_POS.x, P.SUN_POS.y, P.SUN_POS.z);
+// vue initiale : extérieur de la galaxie (R pour rejoindre le Soleil)
+controls.position.set(-9000, -32000, 22000);
 controls.lookAt(new THREE.Vector3(0, 0, 0));
+controls.speed = 3000;
 const hud = new Hud(state, lod, far, controls);
 const probe = new Probe(grid, lodLocal);
 (window as unknown as { galaxy: { probe: unknown; systemR: unknown } }).galaxy.probe = probe;

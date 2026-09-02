@@ -14,6 +14,7 @@ uniform float uMaxSize;
 uniform float uLumScale;
 uniform float uSoft; // 1 = profil doux (nébuleuse)
 
+#define EXT_FAST
 #include <extinction>
 
 out vec3 vColor;

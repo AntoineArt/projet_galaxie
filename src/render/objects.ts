@@ -32,7 +32,7 @@ export class Objects {
 
     // --- amas globulaires (157)
     {
-      const NG = 157, PER = 2500;
+      const NG = 157, PER = 1200;
       const pos = new Float32Array(NG * PER * 3), L = new Float32Array(NG * PER), col = new Float32Array(NG * PER * 3), rad = new Float32Array(NG * PER);
       let k = 0;
       for (let g = 0; g < NG; g++) {
@@ -87,7 +87,7 @@ export class Objects {
 
     // --- amas ouverts jeunes dans les bras (population jeune, dissous après ~300 Ma : rendus fixes, lumière jeune)
     {
-      const NO = 2500, PER = 160;
+      const NO = 2500, PER = 80;
       const young = youngPopMean();
       const pos = new Float32Array(NO * PER * 3), L = new Float32Array(NO * PER), col = new Float32Array(NO * PER * 3), rad = new Float32Array(NO * PER);
       const d = new Float64Array(5);
