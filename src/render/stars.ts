@@ -13,9 +13,17 @@ export class StarRenderer {
   private meshes: THREE.Points[] = [];
   private attrs: THREE.InstancedInterleavedBuffer[] = [];
 
-  constructor() {
+  private visTex: THREE.DataTexture | null = null;
+
+  /** useTexture : GPU avec moins de ~600 vecteurs uniformes au vertex shader */
+  constructor(useTexture: boolean) {
+    if (useTexture) {
+      this.visTex = new THREE.DataTexture(new Float32Array(NBINS * VIS_NL), VIS_NL, NBINS, THREE.RedFormat, THREE.FloatType);
+      this.visTex.minFilter = this.visTex.magFilter = THREE.NearestFilter;
+    }
     this.material = new THREE.RawShaderMaterial({
       glslVersion: THREE.GLSL3,
+      defines: useTexture ? { VIS_TEXTURE: '' } : {},
       vertexShader: vertexShader(starVert),
       fragmentShader: fragmentShader(starFrag),
       uniforms: {
@@ -38,7 +46,7 @@ export class StarRenderer {
         uArmReject: { value: 1 },
         uDebugBin: { value: 0 },
         uQTO: { value: new Float32Array(NBINS) },
-        uVisTab: { value: new Float32Array(NBINS * VIS_NL) },
+        ...(useTexture ? { uVis: { value: this.visTex } } : { uVisTab: { value: new Float32Array(NBINS * VIS_NL) } }),
       },
       blending: THREE.AdditiveBlending,
       depthTest: false,
@@ -69,7 +77,8 @@ export class StarRenderer {
 
   /** copie les buffers produits par le LodBuilder */
   upload(lod: { buckets: { count: number; data: Float32Array<ArrayBufferLike> }[]; vis: { data: Float32Array<ArrayBufferLike> } }): void {
-    (this.material.uniforms.uVisTab.value as Float32Array).set(lod.vis.data);
+    if (this.visTex) { (this.visTex.image.data as Float32Array).set(lod.vis.data); this.visTex.needsUpdate = true; }
+    else (this.material.uniforms.uVisTab.value as Float32Array).set(lod.vis.data);
     for (let b = 0; b < NUM_BUCKETS; b++) {
       const bk = lod.buckets[b];
       const geo = this.meshes[b].geometry as THREE.InstancedBufferGeometry;

@@ -23,7 +23,11 @@ uniform float uQTO[NBINS]; // quantile de turnoff par tranche
 uniform float uDebugBin; // 1 : couleur par tranche (rouge jeunes, vert disque mince, bleu autres)
 uniform float uArmReject; // 1 : rejet selon le profil de bras (étoiles jeunes)
 uniform vec3 uSkip; // (graine, tranche, index) de l'étoile rendue par le système stellaire (résolue à part)
+#ifdef VIS_TEXTURE
+uniform sampler2D uVis; // quantile visible [seuil x tranche] (GPU à peu de registres uniformes)
+#else
 uniform vec4 uVisTab[NBINS * 16]; // quantile visible [tranche][seuil], 64 seuils par tranche
+#endif
 
 out vec3 vColor;
 out float vIntensity;
@@ -72,8 +76,13 @@ void main() {
     float n = binN(c);
     if (n <= 0.0) continue;
     float a = includeDead ? 0.0 : floor(n * uQTO[c]);
+#ifdef VIS_TEXTURE
+    float qv = texelFetch(uVis, ivec2(visIdx, c), 0).r;
+#else
     int vi = c * 64 + visIdx;
-    float b = floor(n * uVisTab[vi >> 2][vi & 3] + 0.5);
+    float qv = uVisTab[vi >> 2][vi & 3];
+#endif
+    float b = floor(n * qv + 0.5);
     float len = b - a;
     if (len <= 0.0) continue;
     if (v < acc + len) { bin = c; j = a + (v - acc); N = n; break; }
