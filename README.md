@@ -69,7 +69,7 @@ planètes éclairées avec phases. L'étoile correspondante est retirée du rend
 - Objets discrets : 157 amas globulaires (profil de Plummer), ~2500 amas ouverts et ~5000 régions HII
   dans les bras, Sgr A*.
 - Évolution (`stellar.ts` / `stellar.glsl`) : séquence principale, géante rouge, supergéante,
-  nébuleuse planétaire, naine blanche refroidissante, supernova (flash ~100 ans + rémanent), étoile à
+  nébuleuse planétaire, naine blanche refroidissante, supernova (flash ~300 ans + rémanent), étoile à
   neutrons, trou noir.
 - Histoires de formation par composante ; le disque mince forme des étoiles en continu jusqu'à 20 Ga.
 - Extinction interstellaire analytique (`extinction.glsl`) intégrée le long de la ligne de visée,
