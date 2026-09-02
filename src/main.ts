@@ -6,6 +6,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import * as P from './galaxy/params';
 import { Grid } from './galaxy/grid';
 import { FLOATS_PER_INSTANCE, LodBuilder } from './galaxy/lod';
+import { LodClient } from './galaxy/lodclient';
 import { StarRenderer } from './render/stars';
 import { FarField } from './render/farfield';
 import { FlyControls } from './controls';
@@ -42,7 +43,8 @@ composer.addPass(new OutputPass());
 // --- modèle
 const grid = new Grid();
 const pop = new Population();
-const lod = new LodBuilder(grid, pop);
+const lodLocal = new LodBuilder(grid, pop); // sonde CPU (nodeInfo) ; le parcours de rendu est dans le worker
+const lod = new LodClient();
 const stars = new StarRenderer();
 const glow = new GlowRenderer();
 const far = new FarField(grid, pop);
@@ -65,13 +67,13 @@ const state = {
   showOrbits: true,
 };
 let system: StarSystem | null = null;
-(window as unknown as { galaxy: unknown }).galaxy = { state, lod, stars, far, objects, glow, probe: null as unknown, systemR: null as unknown, camera, THREE, P, controls: null as unknown };
+(window as unknown as { galaxy: unknown }).galaxy = { state, lod, lodLocal, stars, far, objects, glow, probe: null as unknown, systemR: null as unknown, camera, THREE, P, controls: null as unknown };
 const controls = new FlyControls(renderer.domElement);
 (window as unknown as { galaxy: { controls: unknown } }).galaxy.controls = controls;
 controls.position.set(P.SUN_POS.x, P.SUN_POS.y, P.SUN_POS.z);
 controls.lookAt(new THREE.Vector3(0, 0, 0));
 const hud = new Hud(state, lod, far, controls);
-const probe = new Probe(grid, lod);
+const probe = new Probe(grid, lodLocal);
 (window as unknown as { galaxy: { probe: unknown; systemR: unknown } }).galaxy.probe = probe;
 (window as unknown as { galaxy: { probe: unknown; systemR: unknown } }).galaxy.systemR = systemR;
 
@@ -91,16 +93,15 @@ function needRebuild(): boolean {
   // parallaxe : le déplacement compte relativement au noeud le plus proche
   if (moved > Math.max(0.3, 0.04 * smallest, 0.03 * lod.stats.nearest)) return true;
   // les phases de dérive et les tables de population restent valables sur ~0.4 % de l'âge courant
-  if (Math.abs(state.time - tRef) > Math.max(0.5, 0.004 * state.time)) return true;
+  if (Math.abs(state.time - requestedTime) > Math.max(0.5, 0.004 * state.time)) return true;
   if (controls.quaternion.angleTo(lastQuat) > 0.08) return true;
-  if (lod.budget !== state.budget || !lod.stats.converged) return true;
+  if (lod.budget !== state.budget) return true;
+  if (!lod.stats.converged && !lod.inFlight) return true;
   return false;
 }
 let smallestNode = 64;
 
 function rebuild(theta: number): void {
-  anchor.copy(camPat);
-  tRef = state.time;
   lod.budget = state.budget;
   // frustum élargi pour le culling
   cullCam.fov = Math.min(170, camera.fov + 25);
@@ -110,18 +111,24 @@ function rebuild(theta: number): void {
   cullCam.updateMatrixWorld();
   cullCam.updateProjectionMatrix();
   projView.multiplyMatrices(cullCam.projectionMatrix, cullCam.matrixWorldInverse);
-  lod.build(camPat, theta, anchor, tRef, projView);
+  lod.request(camPat, theta, camPat, state.time, projView);
+  lastCamPat.copy(camPat);
+  lastQuat.copy(controls.quaternion);
+  requestedTime = state.time;
+}
+let requestedTime = -1e9;
+lod.onResult = () => {
   stars.upload(lod);
   glow.upload(lod);
+  anchor.copy(lod.anchor);
+  tRef = lod.tRef;
   smallestNode = 1e9;
   for (let b = 0; b < lod.buckets.length; b++) {
     const bk = lod.buckets[b];
     for (let i = 0; i < bk.count; i++) smallestNode = Math.min(smallestNode, bk.data[i * FLOATS_PER_INSTANCE + 3]);
   }
   if (smallestNode === 1e9) smallestNode = 64;
-  lastCamPat.copy(camPat);
-  lastQuat.copy(controls.quaternion);
-}
+};
 
 // --- boucle
 let last = performance.now();

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import starVert from './shaders/star.vert.glsl?raw';
 import starFrag from './shaders/star.frag.glsl?raw';
 import { vertexShader, fragmentShader, imfUniforms, dustUniforms } from './shaderlib';
-import { FLOATS_PER_INSTANCE, LodBuilder, NUM_BUCKETS } from '../galaxy/lod';
+import { FLOATS_PER_INSTANCE, NUM_BUCKETS } from '../galaxy/lod';
 import { NBINS } from '../galaxy/bins';
 import { VIS_NL } from '../galaxy/visq';
 
@@ -68,7 +68,7 @@ export class StarRenderer {
   }
 
   /** copie les buffers produits par le LodBuilder */
-  upload(lod: LodBuilder): void {
+  upload(lod: { buckets: { count: number; data: Float32Array<ArrayBufferLike> }[]; vis: { data: Float32Array<ArrayBufferLike> } }): void {
     (this.material.uniforms.uVisTab.value as Float32Array).set(lod.vis.data);
     for (let b = 0; b < NUM_BUCKETS; b++) {
       const bk = lod.buckets[b];

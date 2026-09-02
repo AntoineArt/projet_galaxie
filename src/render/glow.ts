@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import glowVert from './shaders/glow.vert.glsl?raw';
 import glowFrag from './shaders/glow.frag.glsl?raw';
 import { vertexShader, fragmentShader, dustUniforms } from './shaderlib';
-import { GLOW_FLOATS, LodBuilder } from '../galaxy/lod';
+import { GLOW_FLOATS } from '../galaxy/lod';
 
 export class GlowRenderer {
   mesh: THREE.Mesh;
@@ -44,7 +44,7 @@ export class GlowRenderer {
     this.geo.setAttribute('aColor', new THREE.InterleavedBufferAttribute(this.buf, 3, 5));
   }
 
-  upload(lod: LodBuilder): void {
+  upload(lod: { glow: { count: number; data: Float32Array<ArrayBufferLike> } }): void {
     const need = lod.glow.count * GLOW_FLOATS;
     if (this.buf.array.length < need) {
       this.buf = new THREE.InstancedInterleavedBuffer(new Float32Array(Math.max(need, this.buf.array.length * 2)), GLOW_FLOATS);
