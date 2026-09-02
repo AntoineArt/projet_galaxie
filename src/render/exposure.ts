@@ -13,7 +13,7 @@ export class ExposurePass extends Pass {
   private frame = 0;
   /** luminance mesurée (moyenne des 20 % de blocs les plus lumineux) à l'exposition courante */
   measured = 0;
-  target = 0.09;
+  target = 0.16;
   private logExp = Math.log(4);
   exposure = 4;
 
@@ -52,10 +52,11 @@ export class ExposurePass extends Pass {
     const lum: number[] = [];
     for (let i = 0; i < N * N; i++) lum.push(this.pixels[i * 4]);
     lum.sort((a, b) => b - a);
-    const nTop = Math.max(1, Math.floor(N * N * 0.2));
-    let s = 0;
-    for (let i = 0; i < nTop; i++) s += lum[i];
-    this.measured = s / nTop;
+    // mélange : blocs les plus lumineux (évite la saturation d'un petit objet) et 20 % supérieurs (scène étendue)
+    const n3 = Math.max(1, Math.floor(N * N * 0.03)), n20 = Math.max(1, Math.floor(N * N * 0.2));
+    let s3 = 0, s20 = 0;
+    for (let i = 0; i < n20; i++) { if (i < n3) s3 += lum[i]; s20 += lum[i]; }
+    this.measured = 0.5 * (s3 / n3) + 0.5 * (s20 / n20);
   }
 
   /** met à jour l'exposition (appelée chaque frame) et la retourne */

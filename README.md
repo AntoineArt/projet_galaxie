@@ -10,6 +10,10 @@ pnpm dev          # http://localhost:5173
 pnpm build
 ```
 
+![vue extérieure](docs/vue-exterieure.png)
+![depuis le voisinage solaire](docs/vue-soleil.png)
+![système stellaire](docs/systeme.png)
+
 ## Principe
 
 Aucune étoile n'est stockée. Le nombre d'étoiles par région vient d'un modèle de densité analytique
