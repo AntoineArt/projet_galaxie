@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch({ args: ['--use-angle=metal', '--ignore-gpu-blocklist', '--enable-gpu'], headless: true });
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('BoundingSphere')) console.log(m.text().slice(0, 500)); });
+await page.goto('http://localhost:5173/', { waitUntil: 'load' });
+await page.waitForFunction(() => !document.getElementById('loading'), null, { timeout: 60000 });
+await page.evaluate((code) => eval(code), process.argv[3] ?? '');
+await page.waitForTimeout(2000);
+await page.screenshot({ path: process.argv[2] });
+console.log(await page.evaluate(() => document.getElementById('hud').textContent));
+await browser.close();
