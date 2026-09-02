@@ -118,8 +118,10 @@ export class LodBuilder {
     let iter = 0;
     let stars = 0, nodes = 0;
     this.fluxMin = this.fluxMinNext;
-    // asservissement du seuil : K ~ fluxMin^-alpha, alpha estimé par sécante entre deux itérations
+    // asservissement du seuil : K ~ fluxMin^-alpha (alpha par sécante) tant que le budget n'est pas encadré,
+    // puis bissection géométrique entre le plus grand seuil "trop d'étoiles" et le plus petit "pas assez"
     let prevF = -1, prevK = -1, alpha = 0.45;
+    let fLo = -1, fHi = -1; // fLo : K > budget ; fHi : K < budget
     for (;;) {
       for (const b of this.buckets) b.count = 0;
       this.glow.count = 0;
@@ -129,14 +131,20 @@ export class LodBuilder {
       const ratio = stars / this.budget;
       const needAdjust = ratio > 1.15 || (ratio < 0.6 && this.fluxMin > 1e-9);
       if (!needAdjust) { this.fluxMinNext = this.fluxMin; break; }
-      if (prevF > 0 && prevK > 0 && stars > 0 && prevK !== stars && prevF !== this.fluxMin) {
-        const est = -Math.log(stars / prevK) / Math.log(this.fluxMin / prevF);
-        if (Number.isFinite(est)) alpha = Math.max(0.15, Math.min(1.5, est));
+      if (ratio > 1) fLo = Math.max(fLo, this.fluxMin); else fHi = fHi < 0 ? this.fluxMin : Math.min(fHi, this.fluxMin);
+      let next: number;
+      if (fLo > 0 && fHi > 0) next = Math.sqrt(fLo * fHi);
+      else {
+        if (prevF > 0 && prevK > 0 && stars > 0 && prevK !== stars && prevF !== this.fluxMin) {
+          const est = -Math.log(stars / prevK) / Math.log(this.fluxMin / prevF);
+          if (Number.isFinite(est)) alpha = Math.max(0.15, Math.min(4, est));
+        }
+        const f = Math.pow(Math.max(ratio, 0.02), 1 / alpha);
+        next = this.fluxMin * Math.max(0.1, Math.min(30, f));
       }
       prevF = this.fluxMin; prevK = stars;
-      const f = Math.pow(Math.max(ratio, 0.02), 1 / alpha);
-      const next = Math.max(1e-9, Math.min(1e3, this.fluxMin * Math.max(0.1, Math.min(30, f))));
-      if (iter >= 4) { this.fluxMinNext = next; break; }
+      next = Math.max(1e-9, Math.min(1e3, next));
+      if (iter >= 6) { this.fluxMinNext = next; break; }
       this.fluxMin = next;
     }
     this.stats = { nodes, stars, fluxMin: this.fluxMin, iterations: iter, ms: performance.now() - t0, converged: this.fluxMinNext === this.fluxMin, nearest: this.nearestD };

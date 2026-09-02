@@ -21,8 +21,9 @@ avancer de 10 Ga ne coûte rien.
 
 - Octree cubique de 64 kpc, feuilles de 64 pc (niveau 10). Comptes par composante pré-intégrés sur
   une grille de 512 pc (`grid.ts`), évalués analytiquement en dessous.
-- Parcours par frame (CPU, `lod.ts`) : un noeud est subdivisé si `taille / distance > 0.75`, avec une
-  taille maximale de 512 pc dans le plan du disque (structure verticale de 300 pc).
+- Parcours (CPU, `lod.ts`, exécuté dans un Web Worker `lod.worker.ts`) à chaque déplacement
+  significatif : un noeud est subdivisé si `taille / distance > 0.75`, avec une taille maximale de
+  512 pc dans le plan du disque (structure verticale de 300 pc).
 - Positions intra-noeud : uniformes, déformées par le gradient local de densité (`warp1`), avec
   dérive azimutale des étoiles du disque (repliement dans le cube) dans le référentiel tournant du
   motif spiral.
@@ -40,7 +41,9 @@ décroissante (IMF de Kroupa stratifiée). Pour un noeud à distance `d` et un s
   `L = F_min d²`, calculé depuis la fonction de luminosité réelle (géantes comprises, `visq.ts`).
 
 Seule l'union des plages `[a_c, b_c)` est dessinée (un draw call instancié par puissance de deux de
-`K`). Le seuil `F_min` s'ajuste pour respecter un budget de sommets (1,5 M par défaut).
+`K`). Le seuil `F_min` s'ajuste (sécante puis bissection) pour respecter un budget de sommets (1,5 M
+par défaut). Les étoiles jeunes sont comptées avec le facteur de bras maximal du noeud puis rejetées
+selon le profil de bras exact à leur position : la structure spirale est résolue à l'étoile près.
 
 ### Champ lointain
 
