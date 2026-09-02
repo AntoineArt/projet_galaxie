@@ -100,6 +100,7 @@ export class LodBuilder {
       }
     }
     info = { n, arm, armMax, grad, total };
+    if (this.cache.size > 500000) this.cache.clear(); // borne mémoire sur les longues sessions
     this.cache.set(key, info);
     return info;
   }
