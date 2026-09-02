@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import * as P from '../galaxy/params';
 import type { LodStats } from '../galaxy/lod';
-import type { FarField } from '../render/farfield';
 import type { FlyControls } from '../controls';
 import type { Probe } from '../galaxy/probe';
 import { PHASE_NAMES } from '../galaxy/stellar';
@@ -52,7 +51,7 @@ export class Hud {
   private pressed = new Set<string>();
   private lookTarget: THREE.Vector3 | null = null;
 
-  constructor(private state: AppState, private lod: { stats: LodStats; glow: { count: number } }, _far: FarField, private controls: FlyControls) {
+  constructor(private state: AppState, private lod: { stats: LodStats; glow: { count: number } }, private controls: FlyControls) {
     this.buildPanel();
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;

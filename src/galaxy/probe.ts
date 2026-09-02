@@ -2,7 +2,6 @@
 // pour identifier l'étoile la plus proche et ses propriétés.
 import * as THREE from 'three';
 import * as P from './params';
-import { Grid } from './grid';
 import { LodBuilder } from './lod';
 import { imfInv, stellarState, type StarState } from './stellar';
 import { NBINS, BIN_YOUNG0, YOUNG_ARM, YOUNG_BASE, binCounts, binComponent, birthInBin, binMassQuantile, youngFraction } from './bins';
@@ -35,7 +34,7 @@ export class Probe {
   private tmpState: StarState = { L: 0, T: 0, phase: 0, radius: 0 };
   private binN = new Float64Array(NBINS);
 
-  constructor(_grid: Grid, private lod: LodBuilder) {}
+  constructor(private lod: LodBuilder) {}
 
   update(camPat: THREE.Vector3, _theta: number, time: number, now: number): void {
     if (now - this.lastRun < 250) return;

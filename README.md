@@ -102,5 +102,6 @@ qui régénère les mêmes étoiles que le GPU).
 ## Scripts
 
 - `node scripts/shot.mjs out.png [touches]` : capture headless (Playwright, dev server requis).
-- `node scripts/perf5.mjs` : mesures de fps par configuration.
+- `node scripts/perf5.mjs`, `perf7.mjs` : mesures de fps par configuration (headless, `--disable-frame-rate-limit`).
+- `node scripts/session.mjs` : session scriptée (touches, temps) et relevé des erreurs console.
 - `pnpm dlx tsx scripts/dbg3.ts` : statistiques du LOD depuis plusieurs points de vue.

@@ -3,7 +3,6 @@ import * as THREE from 'three';
 import cloudVert from './shaders/cloud.vert.glsl?raw';
 import starFrag from './shaders/star.frag.glsl?raw';
 import { vertexShader, fragmentShader, dustUniforms } from './shaderlib';
-import { Grid } from '../galaxy/grid';
 import { density } from '../galaxy/density';
 import { buildPopTable, samplePop, youngPopMean, type PopTable } from '../galaxy/stellar';
 
@@ -26,7 +25,7 @@ export class Objects {
   private haloPop: PopTable;
   private tmp = new Float32Array(4);
 
-  constructor(_grid: Grid) {
+  constructor() {
     const rng = mulberry(98765);
     this.haloPop = buildPopTable('halo');
 
