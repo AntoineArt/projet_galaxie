@@ -13,7 +13,7 @@ export class ExposurePass extends Pass {
   private frame = 0;
   /** luminance mesurée (moyenne des 20 % de blocs les plus lumineux) à l'exposition courante */
   measured = 0;
-  target = 0.12;
+  target = 0.09;
   private logExp = Math.log(4);
   exposure = 4;
 

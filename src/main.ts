@@ -149,7 +149,7 @@ function frame(): void {
   if (needRebuild()) rebuild(theta);
 
   exposurePass.enabled = state.autoExposure;
-  exposurePass.target = system ? 0.025 : 0.12; // près d'une étoile : ciel éblouissant, exposition réduite
+  exposurePass.target = system ? 0.025 : 0.09; // près d'une étoile : ciel éblouissant, exposition réduite
   if (state.autoExposure) state.exposure = exposurePass.update(dt);
 
   anchorRel.copy(anchor).sub(camPat);
