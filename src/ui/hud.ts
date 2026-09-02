@@ -50,6 +50,9 @@ export class Hud {
   private speedIdx = 9;
   private pressed = new Set<string>();
   private lookTarget: THREE.Vector3 | null = null;
+  pickRequested = false;
+  private marker = document.getElementById('marker')!;
+  private tmpV = new THREE.Vector3();
 
   constructor(private state: AppState, private lod: { stats: LodStats; glow: { count: number } }, private controls: FlyControls) {
     this.buildPanel();
@@ -103,11 +106,14 @@ export class Hud {
   handleKeys(controls: FlyControls, probe: Probe): void {
     const s = this.state;
     const p = this.pressed;
-    if (p.has('KeyJ') && probe.nearest) {
+    if (p.has('KeyX')) this.pickRequested = true;
+    if (p.has('Escape')) probe.clearSelection();
+    const focus = probe.selected ?? probe.nearest;
+    if (p.has('KeyJ') && focus) {
       // saut à 40 UA de l'étoile la plus proche, dans le plan de son système
       const th = P.PATTERN_OMEGA * s.time;
       const c = Math.cos(th), sn = Math.sin(th);
-      const q = probe.nearest.pos;
+      const q = focus.pos;
       const target = new THREE.Vector3(c * q.x - sn * q.y, sn * q.x + c * q.y, q.z);
       controls.position.copy(target).add(new THREE.Vector3(40 * 4.848e-6, 0, 8 * 4.848e-6));
       controls.lookAt(target);
@@ -125,15 +131,31 @@ export class Hud {
     p.clear();
   }
 
+  /** anneau autour de l'étoile sélectionnée */
+  updateMarker(sel: { pos: THREE.Vector3 } | null, camera: THREE.PerspectiveCamera, camWorld: THREE.Vector3, theta: number): void {
+    if (!sel) { this.marker.style.display = 'none'; return; }
+    const c = Math.cos(theta), sn = Math.sin(theta);
+    const q = sel.pos;
+    const v = this.tmpV.set(c * q.x - sn * q.y - camWorld.x, sn * q.x + c * q.y - camWorld.y, q.z - camWorld.z);
+    v.applyQuaternion(camera.quaternion.clone().invert());
+    if (v.z >= 0) { this.marker.style.display = 'none'; return; }
+    v.applyMatrix4(camera.projectionMatrix);
+    if (Math.abs(v.x) > 1.05 || Math.abs(v.y) > 1.05) { this.marker.style.display = 'none'; return; }
+    this.marker.style.display = 'block';
+    this.marker.style.left = `${((v.x + 1) / 2) * innerWidth}px`;
+    this.marker.style.top = `${((1 - v.y) / 2) * innerHeight}px`;
+  }
+
   update(s: AppState, camPat: THREE.Vector3, probe: Probe, info: THREE.WebGLRenderer['info'], system: StarSystem | null): void {
     this.frames++;
     const now = performance.now();
     if (now - this.lastT > 500) { this.fps = (this.frames * 1000) / (now - this.lastT); this.frames = 0; this.lastT = now; for (const r of this.refreshers) r(); }
-    if (this.lookTarget && probe.nearest) {
+    const focus = probe.selected ?? probe.nearest;
+    if (this.lookTarget && focus) {
       // convertit la position (réf. motif) en monde
       const th = P.PATTERN_OMEGA * s.time;
       const c = Math.cos(th), sn = Math.sin(th);
-      const q = probe.nearest.pos;
+      const q = focus.pos;
       this.lookTarget.set(c * q.x - sn * q.y, sn * q.x + c * q.y, q.z);
       this.controls.lookAt(this.lookTarget);
     }
@@ -149,12 +171,12 @@ export class Hud {
     ];
     this.hud.textContent = lines.join('\n');
 
-    const n = probe.nearest;
+    const n = focus;
     if (n) {
       this.starEl.style.display = 'block';
       const ph = n.state.phase;
       const info2 = [
-        `étoile la plus proche  #${n.index}`,
+        probe.selected ? `étoile sélectionnée  #${n.index}` : `étoile la plus proche  #${n.index}`,
         `distance   ${fmtDist(n.dist)}`,
         `composante ${COMP_NAMES[n.comp]}`,
         `masse      ${n.mass < 0.1 ? n.mass.toFixed(3) : n.mass.toFixed(2)} M☉`,

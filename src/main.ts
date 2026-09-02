@@ -210,9 +210,17 @@ function frame(): void {
   bloom.strength = state.bloom;
   renderer.info.reset();
   composer.render();
-  probe.update(camPat, theta, state.time, now);
-  // système stellaire résolu : étoile la plus proche à moins de 0,05 pc (~10 000 UA)
-  const near = probe.nearest;
+  probe.update(camPat, state.time, now);
+  if (hud.pickRequested) {
+    hud.pickRequested = false;
+    // rayon au centre de la vue, converti dans le référentiel du motif
+    const dirW = new THREE.Vector3(0, 0, -1).applyQuaternion(controls.quaternion);
+    const dirPat = new THREE.Vector3(c * dirW.x - s * dirW.y, s * dirW.x + c * dirW.y, dirW.z);
+    probe.pick(camPat, dirPat, state.time, lod.fluxMin);
+  }
+  hud.updateMarker(probe.selected, camera, controls.position, theta);
+  // système stellaire résolu : étoile (sélectionnée sinon la plus proche) à moins de 0,05 pc (~10 000 UA)
+  const near = probe.selected && probe.selected.dist < 0.05 ? probe.selected : probe.nearest;
   if (near && near.dist < 0.05) {
     if (!system || system.id !== near.id || Math.abs(system.age - near.age) > 0) {
       const seedHash = (near.seed ^ Math.imul(near.bin + 1, 0x01000193) ^ Math.imul(near.index + 1, 0x9e3779b9)) >>> 0;

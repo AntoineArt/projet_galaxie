@@ -91,13 +91,14 @@ densité stationnaire), les autres ont des dates de naissance absolues.
 | T, [ ] | pause, vitesse du temps (1 jour/s à 1 Ga/s) |
 | 0 | retour à aujourd'hui (13 Ga) |
 | R / G / H | Soleil / vue extérieure / vue de dessus |
-| F | viser l'étoile la plus proche |
-| J | sauter à 40 UA de l'étoile la plus proche (vue du système) |
+| X / Échap | sélectionner l'étoile visible au réticule (parmi les noeuds traversés par le rayon) / annuler |
+| F | viser l'étoile sélectionnée (sinon la plus proche) |
+| J | sauter à 40 UA de l'étoile sélectionnée ou la plus proche (vue du système) |
 | E | auto-exposition |
 
 Le panneau de droite règle le temps, le budget d'étoiles, l'exposition, le bloom, le champ lointain
-et la poussière. Le cadre en bas à droite décrit l'étoile la plus proche (sonde CPU, `probe.ts`,
-qui régénère les mêmes étoiles que le GPU).
+et la poussière. Le cadre en bas à droite décrit l'étoile sélectionnée ou la plus proche (sonde CPU, `probe.ts`,
+qui régénère les mêmes étoiles que le GPU et suit leur évolution).
 
 ## Scripts
 

@@ -12,7 +12,7 @@ page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
 await page.goto('http://localhost:5173/', { waitUntil: 'load' });
 await page.waitForSelector('#hud', { state: 'attached' });
 await page.waitForFunction(() => !document.getElementById('loading'), null, { timeout: 60000 });
-for (const k of keys) { await page.keyboard.press(k); await page.waitForTimeout(300); }
+for (const k of keys) { await page.keyboard.press(k); await page.waitForTimeout(900); }
 await page.waitForTimeout(2500);
 await page.screenshot({ path: out });
 const hud = await page.evaluate(() => document.getElementById('hud').textContent + '\n' + document.getElementById('star').textContent);
