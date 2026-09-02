@@ -3,12 +3,15 @@ import extinctionGlsl from './shaders/extinction.glsl?raw';
 import { ARMS, ARM_PITCH, ARM_R0, ARM_SIGMA, T_MAX_BIRTH } from '../galaxy/params';
 import { YOUNG_TAU, IMF_CUM } from '../galaxy/stellar';
 import { F_CAP, NBINS, YOUNG_AGES, YOUNG_W } from '../galaxy/bins';
+import { GLOW_FAR, GLOW_NEAR } from '../galaxy/lod';
 import * as THREE from 'three';
 
 const DEFINES = `#define T_MAX_BIRTH ${T_MAX_BIRTH.toFixed(1)}
 #define YOUNG_TAU ${YOUNG_TAU.toFixed(1)}
 #define F_CAP ${F_CAP.toFixed(7)}
 #define NBINS ${NBINS}
+#define GLOW_NEAR ${GLOW_NEAR.toFixed(2)}
+#define GLOW_FAR ${GLOW_FAR.toFixed(2)}
 const float YOUNG_AGES[7] = float[7](${YOUNG_AGES.map((a) => a.toFixed(1)).join(', ')});
 #define ARM_K ${(1 / Math.tan(ARM_PITCH)).toFixed(6)}
 #define ARM_R0 ${ARM_R0.toFixed(1)}

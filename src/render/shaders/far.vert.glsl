@@ -3,6 +3,7 @@ in vec3 position; // réf. motif, absolu
 in float aW; // poids (densité locale / densité moyenne de la cellule)
 in float aComp; // composante
 in float aArm; // facteur bras
+in float aRad; // rayon représenté (pc)
 
 uniform mat4 uProj;
 uniform mat4 uView;
@@ -19,7 +20,6 @@ uniform sampler2D uKeep; // fraction de L des étoiles de L_MS < Lcut ; lignes =
 uniform vec2 uLumRange; // logLmin, logLmax
 uniform vec3 uKeepT; // (indice temps fractionnaire, nT, rows)
 uniform float uPointBase;
-uniform float uCellRadius; // rayon physique représenté par un point (pc)
 uniform float uPixelScale;
 uniform float uMaxSize;
 uniform vec2 uYoung; // base, supplément bras
@@ -36,6 +36,11 @@ void main() {
   vec3 rel = vec3(c * p.x - s * p.y, s * p.x + c * p.y, p.z);
   float d2 = dot(rel, rel);
   float d = sqrt(d2);
+  // fondus : intérieur du volume représenté, et zone couverte par les lueurs de noeuds
+  // (lod.ts : GLOW_NEAR/GLOW_FAR fois la taille maximale locale des noeuds)
+  float sMax = (abs(position.z) < 1024.0 && length(position.xy) < 22000.0) ? 512.0 : 1024.0;
+  float fade = smoothstep(0.0, aRad, d) * smoothstep(GLOW_NEAR * sMax, GLOW_FAR * sMax, d);
+  if (fade <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; vIntensity = 0.0; return; }
   int comp = int(aComp + 0.5);
   float y = comp == 1 ? uYoung.x + uYoung.y * aArm : 0.0;
   float Lold = uPopL[comp] * (1.0 - y);
@@ -48,16 +53,18 @@ void main() {
   float keepOld = mix(texture(uKeep, vec2(fx, (row0 + 0.5) / uKeepT.z)).r, texture(uKeep, vec2(fx, (row0 + 1.5) / uKeepT.z)).r, ka);
   float keepYoung = texture(uKeep, vec2(fx, (uKeepT.z - 0.5) / uKeepT.z)).r;
   Lold *= keepOld; Lyoung *= keepYoung;
-  float L = aW * uNrep * (Lold + Lyoung);
+  float L = aW * uNrep * (Lold + Lyoung) * fade;
   vec3 rgb = (uPopRGB[comp].rgb * Lold + uYoungRGB * Lyoung) / max(Lold + Lyoung, 1e-12);
+  float flux = L / max(d2, 1e-6);
+  if (flux * uExposure < 1e-4) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; vIntensity = 0.0; return; }
   vec3 trans = dustTransmission(uCamPat, p);
-  float flux = L / max(d2, 1e-6) * trans.g;
+  flux *= trans.g;
   rgb *= trans / max(trans.g, 1e-4);
   float b = flux * uExposure;
   vec4 vp = uView * vec4(rel, 1.0);
   gl_Position = uProj * vp;
   // points proches : étalés sur l'angle que couvre la cellule qu'ils représentent (lueur diffuse)
-  float px = uCellRadius / d * uPixelScale * 2.0;
+  float px = aRad / d * uPixelScale * 2.0;
   float sz = clamp(max(px, uPointBase + 0.8 * log2(max(b, 1.0))), 1.0, uMaxSize);
   gl_PointSize = sz;
   vSize = sz;

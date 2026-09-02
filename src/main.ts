@@ -13,6 +13,8 @@ import { Hud } from './ui/hud';
 import { ExposurePass } from './render/exposure';
 import { Probe } from './galaxy/probe';
 import { Objects } from './render/objects';
+import { GlowRenderer } from './render/glow';
+import { Population } from './galaxy/population';
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -37,11 +39,13 @@ composer.addPass(new OutputPass());
 
 // --- modèle
 const grid = new Grid();
-const lod = new LodBuilder(grid);
+const pop = new Population();
+const lod = new LodBuilder(grid, pop);
 const stars = new StarRenderer();
-const far = new FarField(grid);
+const glow = new GlowRenderer();
+const far = new FarField(grid, pop);
 const objects = new Objects(grid);
-scene.add(far.group, stars.group, objects.group);
+scene.add(far.group, glow.mesh, stars.group, objects.group);
 document.getElementById('loading')!.remove();
 
 // --- état
@@ -56,7 +60,7 @@ const state = {
   showDust: true,
   bloom: 0.55,
 };
-(window as unknown as { galaxy: unknown }).galaxy = { state, lod, stars, far, objects, controls: null as unknown };
+(window as unknown as { galaxy: unknown }).galaxy = { state, lod, stars, far, objects, glow, controls: null as unknown };
 const controls = new FlyControls(renderer.domElement);
 (window as unknown as { galaxy: { controls: unknown } }).galaxy.controls = controls;
 controls.position.set(P.SUN_POS.x, P.SUN_POS.y, P.SUN_POS.z);
@@ -70,19 +74,18 @@ const camPat = new THREE.Vector3();
 const lastCamPat = new THREE.Vector3(1e9, 0, 0);
 const lastQuat = new THREE.Quaternion();
 let tRef = state.time;
-let lastBuild = -1e9;
 const cullCam = new THREE.PerspectiveCamera(60, 1, 0.001, 5e5);
 const projView = new THREE.Matrix4();
 const viewRot = new THREE.Matrix4();
 
-function needRebuild(now: number): boolean {
+function needRebuild(): boolean {
   const smallest = lod.stats.nodes > 0 ? smallestNode : 64;
   const moved = camPat.distanceTo(lastCamPat);
   if (moved > Math.max(0.3, 0.04 * smallest)) return true;
   // les phases de dérive et les tables de population restent valables sur ~0.4 % de l'âge courant
   if (Math.abs(state.time - tRef) > Math.max(0.5, 0.004 * state.time)) return true;
   if (controls.quaternion.angleTo(lastQuat) > 0.08) return true;
-  if (lod.budget !== state.budget) return true;
+  if (lod.budget !== state.budget || !lod.stats.converged) return true;
   return false;
 }
 let smallestNode = 64;
@@ -101,6 +104,7 @@ function rebuild(theta: number): void {
   projView.multiplyMatrices(cullCam.projectionMatrix, cullCam.matrixWorldInverse);
   lod.build(camPat, theta, anchor, tRef, projView);
   stars.upload(lod);
+  glow.upload(lod);
   smallestNode = 1e9;
   for (let b = 0; b < lod.buckets.length; b++) {
     const bk = lod.buckets[b];
@@ -109,7 +113,6 @@ function rebuild(theta: number): void {
   if (smallestNode === 1e9) smallestNode = 64;
   lastCamPat.copy(camPat);
   lastQuat.copy(controls.quaternion);
-  lastBuild = performance.now();
 }
 
 // --- boucle
@@ -135,7 +138,7 @@ function frame(): void {
   viewRot.copy(camera.matrixWorldInverse);
   const pixelScale = (renderer.domElement.height / 2) / Math.tan((camera.fov * Math.PI) / 360);
 
-  if (needRebuild(now)) rebuild(theta);
+  if (needRebuild()) rebuild(theta);
 
   exposurePass.enabled = state.autoExposure;
   if (state.autoExposure) state.exposure = exposurePass.update(dt);
@@ -176,6 +179,15 @@ function frame(): void {
   far.group.children[1].visible = state.showDust;
 
   objects.update(camera, viewRot, camPat, theta, state.time, state.exposure, pixelScale);
+  const gu = glow.material.uniforms;
+  gu.uProj.value.copy(camera.projectionMatrix);
+  gu.uView.value.copy(viewRot);
+  gu.uCamPat.value.copy(camPat);
+  gu.uTheta.value = theta;
+  gu.uExposure.value = state.exposure;
+  gu.uPixelScale.value = pixelScale;
+  gu.uDustOn.value = state.showDust ? 1 : 0;
+  glow.mesh.visible = state.showFar && lod.glow.count > 0;
 
   bloom.strength = state.bloom;
   renderer.info.reset();

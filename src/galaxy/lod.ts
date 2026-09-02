@@ -6,15 +6,20 @@ import { density } from './density';
 import { Grid, NC } from './grid';
 import { NBINS, binCounts, computeQTO, nodeK, youngFraction } from './bins';
 import { VisTable, visIndex } from './visq';
+import { Population } from './population';
 
 export const NUM_BUCKETS = 18; // K max = 2^17 par noeud
 export const FLOATS_PER_INSTANCE = 20;
+export const GLOW_FLOATS = 8; // x, y, z, sigma, L, r, g, b
+/** un noeud à moins de GLOW_FAR fois sa taille rend sa lumière non résolue en lueur ; fondu entre GLOW_NEAR et GLOW_FAR */
+export const GLOW_NEAR = 3.0;
+export const GLOW_FAR = 4.5;
 /** distance (pc) sous laquelle un noeud inclut aussi les résidus (naines blanches, étoiles à neutrons) */
 export const NEAR_DEAD = 150;
 
 interface NodeInfo { n: Float32Array; arm: number; grad: Float32Array; total: number }
 
-export interface LodStats { nodes: number; stars: number; fluxMin: number; iterations: number; ms: number }
+export interface LodStats { nodes: number; stars: number; fluxMin: number; iterations: number; ms: number; converged: boolean }
 
 const TH = 0.75; // seuil de subdivision : taille/distance
 
@@ -25,19 +30,22 @@ export class LodBuilder {
   fluxMin = 1e-6; // flux minimal rendu (L_sun / pc^2), utilisé pour les buffers courants
   private fluxMinNext = 1e-6; // prédiction pour la prochaine construction
   budget = 1_500_000;
+  glow = { data: new Float32Array(GLOW_FLOATS * 1024), count: 0 };
+  pop: Population;
   qTO = new Float32Array(NBINS); // quantiles de turnoff au temps de référence des buffers
   vis = new VisTable(); // quantiles visibles par tranche (temps de référence)
   private binN = new Float64Array(NBINS);
   private visIdx = 0;
   private qVisFn = (c: number) => this.vis.qVis(c, this.visIdx);
-  stats: LodStats = { nodes: 0, stars: 0, fluxMin: 0, iterations: 0, ms: 0 };
+  stats: LodStats = { nodes: 0, stars: 0, fluxMin: 0, iterations: 0, ms: 0, converged: false };
   private frustum = new THREE.Frustum();
   private tmpV = new THREE.Vector3();
   private tmpD = new Float64Array(5);
   private tmpN = new Float32Array(5);
 
-  constructor(grid: Grid) {
+  constructor(grid: Grid, pop: Population) {
     this.grid = grid;
+    this.pop = pop;
     for (let b = 0; b < NUM_BUCKETS; b++) this.buckets.push({ data: new Float32Array(FLOATS_PER_INSTANCE * 256), count: 0 });
   }
 
@@ -95,12 +103,14 @@ export class LodBuilder {
     const t0 = performance.now();
     this.frustum.setFromProjectionMatrix(projView);
     computeQTO(tRef, this.qTO);
+    this.pop.setTime(tRef);
     if (this.vis.needsUpdate(tRef)) this.vis.update(tRef);
     let iter = 0;
     let stars = 0, nodes = 0;
     this.fluxMin = this.fluxMinNext;
     for (;;) {
       for (const b of this.buckets) b.count = 0;
+      this.glow.count = 0;
       const r = this.traverse(camPat, theta, anchor, tRef);
       stars = r.stars; nodes = r.nodes; iter++;
       const ratio = stars / this.budget;
@@ -112,8 +122,37 @@ export class LodBuilder {
       if (iter >= 4) { this.fluxMinNext = next; break; }
       this.fluxMin = next;
     }
-    this.stats = { nodes, stars, fluxMin: this.fluxMin, iterations: iter, ms: performance.now() - t0 };
+    this.stats = { nodes, stars, fluxMin: this.fluxMin, iterations: iter, ms: performance.now() - t0, converged: this.fluxMinNext === this.fluxMin };
     return this.stats;
+  }
+
+  /** lumière non résolue (étoiles sous le seuil) d'un noeud, en sprite doux ; complémentaire du fondu du champ lointain */
+  private pushGlow(cx: number, cy: number, cz: number, size: number, d: number, dEff: number, info: NodeInfo, y: number): void {
+    const logL = Math.log10(this.fluxMin * dEff * dEff);
+    const pop = this.pop;
+    let Lsum = 0, r = 0, g = 0, b = 0;
+    for (let c = 0; c < 4; c++) {
+      const n = c === 1 ? info.n[1] * (1 - y) : info.n[c];
+      if (n <= 0) continue;
+      const Lc = n * pop.L[c] * pop.keepAt(c, logL);
+      Lsum += Lc; r += Lc * pop.rgb[c * 3]; g += Lc * pop.rgb[c * 3 + 1]; b += Lc * pop.rgb[c * 3 + 2];
+    }
+    const ny = info.n[1] * y;
+    if (ny > 0) {
+      const Ly = ny * pop.young.L * pop.keepYoung(logL);
+      Lsum += Ly; r += Ly * pop.young.rgb[0]; g += Ly * pop.young.rgb[1]; b += Ly * pop.young.rgb[2];
+    }
+    if (Lsum <= 0) return;
+    const x = Math.min(1, Math.max(0, (d - GLOW_NEAR * size) / ((GLOW_FAR - GLOW_NEAR) * size)));
+    const w = 1 - x * x * (3 - 2 * x);
+    if (w <= 0) return;
+    const gl = this.glow;
+    const need = (gl.count + 1) * GLOW_FLOATS;
+    if (need > gl.data.length) { const nd = new Float32Array(Math.max(need, gl.data.length * 2)); nd.set(gl.data); gl.data = nd; }
+    const o = gl.count * GLOW_FLOATS;
+    gl.data[o] = cx; gl.data[o + 1] = cy; gl.data[o + 2] = cz; gl.data[o + 3] = size * 0.45; // sigma ~ demi-taille : recouvrement lisse des voisins
+    gl.data[o + 4] = Lsum * w; gl.data[o + 5] = r / Lsum; gl.data[o + 6] = g / Lsum; gl.data[o + 7] = b / Lsum;
+    gl.count++;
   }
 
   private push(b: number, v: Float32Array): void {
@@ -173,7 +212,8 @@ export class LodBuilder {
       binCounts(info.n[0], info.n[1], info.n[2], info.n[3], y, nb);
       const includeDead = d < NEAR_DEAD;
       let K = nodeK(nb, this.qTO, this.qVisFn, includeDead);
-      if (K < 1) continue;
+      const glows = d < GLOW_FAR * size;
+      if (K < 1 && !glows) continue;
       // subdivision forcée : un cube ne peut pas représenter la structure du disque (échelle de hauteur 300 pc)
       const forced = level < 6 || (level < 7 && Math.abs(cz) < 1200 && Rc0 < 22000);
       if (level < P.MAX_LEVEL && (forced || size / dEff > TH)) {
@@ -182,6 +222,8 @@ export class LodBuilder {
         }
         continue;
       }
+      if (glows) this.pushGlow(cx, cy, cz, size, d, dEff, info, y);
+      if (K < 1) continue;
       K = Math.min(K, 1 << (NUM_BUCKETS - 1));
       const b = Math.min(NUM_BUCKETS - 1, Math.max(0, Math.ceil(Math.log2(K))));
       // dérive azimutale des étoiles du disque dans le référentiel du motif

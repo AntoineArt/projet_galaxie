@@ -31,6 +31,7 @@ void main() {
   gl_Position = uProj * (uView * vec4(rel, 1.0));
   float px = aRadius / d * uPixelScale * 2.0;
   float sz = clamp(max(px, 1.5 + 0.9 * log2(max(b, 1.0))), 1.0, uMaxSize);
+  b *= min(1.0, (sz / max(px, 1.0)) * (sz / max(px, 1.0))); // taille plafonnée : conserve la brillance par pixel
   gl_PointSize = sz;
   vSize = sz;
   vIntensity = b / max(1.0, 0.35 * sz * sz) * (uSoft > 0.5 ? 0.6 : 1.0);

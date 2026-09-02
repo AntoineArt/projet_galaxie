@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { Grid } from '../src/galaxy/grid';
 import { LodBuilder } from '../src/galaxy/lod';
+import { Population } from '../src/galaxy/population';
 const g = new Grid();
-const lod = new LodBuilder(g);
+const lod = new LodBuilder(g, new Population());
 const cam = new THREE.PerspectiveCamera(85, 1.6, 0.001, 5e5);
 function run(pos: number[], look: number[], t = 13000) {
   cam.position.set(0,0,0); cam.lookAt(new THREE.Vector3(look[0]-pos[0], look[1]-pos[1], look[2]-pos[2])); cam.updateMatrixWorld(); cam.updateProjectionMatrix();

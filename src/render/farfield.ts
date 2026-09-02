@@ -8,7 +8,8 @@ import { vertexShader, fragmentShader, dustUniforms } from './shaderlib';
 import { Grid, NC } from '../galaxy/grid';
 import { density, dustDensity } from '../galaxy/density';
 import * as P from '../galaxy/params';
-import { buildKeepTable, buildPopTable, samplePop, youngPopMean, KEEP_LOGMAX, KEEP_LOGMIN, KEEP_NL, type PopTable } from '../galaxy/stellar';
+import { KEEP_LOGMAX, KEEP_LOGMIN, KEEP_NL } from '../galaxy/stellar';
+import { Population } from '../galaxy/population';
 import { YOUNG_ARM, YOUNG_BASE, diskRamp } from '../galaxy/bins';
 
 function mulberry(seed: number): () => number {
@@ -22,12 +23,11 @@ export class FarField {
   dustMat: THREE.RawShaderMaterial;
   nPoints: number;
   totalStars: number;
-  private pop: PopTable[] = [];
-  private keep!: ReturnType<typeof buildKeepTable>;
-  private popTmp = new Float32Array(4);
+  private pop: Population;
 
-  constructor(grid: Grid, nPoints = 1_200_000, nDust = 220_000) {
+  constructor(grid: Grid, pop: Population, nPoints = 1_200_000, nDust = 120_000) {
     const t0 = performance.now();
+    this.pop = pop;
     this.nPoints = nPoints;
     this.totalStars = grid.totals.reduce((a, b) => a + b, 0);
     const rng = mulberry(1234567);
@@ -41,6 +41,7 @@ export class FarField {
     const w = new Float32Array(nPoints);
     const comp = new Float32Array(nPoints);
     const arm = new Float32Array(nPoints);
+    const rad = new Float32Array(nPoints);
     const d = new Float64Array(5);
     const vol = L.size ** 3;
     for (let k = 0; k < nPoints; k++) {
@@ -64,18 +65,19 @@ export class FarField {
       const r = rng() * cellTotal;
       comp[k] = r < L.data[o] ? 0 : r < L.data[o] + L.data[o + 1] ? 1 : r < L.data[o] + L.data[o + 1] + L.data[o + 2] ? 2 : 3;
       arm[k] = d[4];
+      // rayon représentatif : espacement moyen des points dans la cellule (lueur continue sans grumeaux)
+      const perCell = (nPoints * cellTotal) / acc;
+      rad[k] = 0.55 * Math.cbrt(vol / Math.max(perCell, 1));
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('aW', new THREE.BufferAttribute(w, 1));
     geo.setAttribute('aComp', new THREE.BufferAttribute(comp, 1));
     geo.setAttribute('aArm', new THREE.BufferAttribute(arm, 1));
+    geo.setAttribute('aRad', new THREE.BufferAttribute(rad, 1));
 
-    // tables de population
-    for (const c of P.COMPONENTS) this.pop.push(buildPopTable(c));
-    const young = youngPopMean();
-    const keep = buildKeepTable();
-    this.keep = keep;
+    const young = pop.young;
+    const keep = pop.keep;
     const keepTex = new THREE.DataTexture(keep.data, KEEP_NL, keep.rows, THREE.RedFormat, THREE.FloatType);
     keepTex.minFilter = keepTex.magFilter = THREE.LinearFilter;
     keepTex.needsUpdate = true;
@@ -101,8 +103,7 @@ export class FarField {
         uLumRange: { value: new THREE.Vector2(KEEP_LOGMIN, KEEP_LOGMAX) },
         uKeepT: { value: new THREE.Vector3(0, keep.nT, keep.rows) },
         uPointBase: { value: 1.5 },
-        uMaxSize: { value: 96 },
-        uCellRadius: { value: 160 },
+        uMaxSize: { value: 64 },
         uPixelScale: { value: 1000 },
         uYoung: { value: new THREE.Vector2(YOUNG_BASE, YOUNG_ARM) },
       },
@@ -143,7 +144,7 @@ export class FarField {
         uCamPat: { value: new THREE.Vector3() },
         uTheta: { value: 0 },
         uPixelScale: { value: 1000 },
-        uMaxSize: { value: 64 },
+        uMaxSize: { value: 48 },
         uRadius: { value: 90 },
         uOpacity: { value: 0.15 },
         uTint: { value: new THREE.Color(0.55, 0.3, 0.18) },
@@ -167,12 +168,13 @@ export class FarField {
     const M = u.uPopRGB.value as THREE.Matrix4;
     const e = M.elements;
     const kt = u.uKeepT.value as THREE.Vector3;
-    kt.x = Math.min(Math.max((t - this.keep.t0) / this.keep.dt, 0), this.keep.nT - 1.001);
+    const pop = this.pop;
+    pop.setTime(t);
+    kt.x = pop.keepIdx;
     (u.uYoung.value as THREE.Vector2).set(YOUNG_BASE * diskRamp(t), YOUNG_ARM * diskRamp(t));
     for (let c = 0; c < 4; c++) {
-      samplePop(this.pop[c], t, this.popTmp);
-      L.setComponent(c, this.popTmp[0]);
-      e[c * 4] = this.popTmp[1]; e[c * 4 + 1] = this.popTmp[2]; e[c * 4 + 2] = this.popTmp[3]; e[c * 4 + 3] = 1;
+      L.setComponent(c, pop.L[c]);
+      e[c * 4] = pop.rgb[c * 3]; e[c * 4 + 1] = pop.rgb[c * 3 + 1]; e[c * 4 + 2] = pop.rgb[c * 3 + 2]; e[c * 4 + 3] = 1;
     }
   }
 }
