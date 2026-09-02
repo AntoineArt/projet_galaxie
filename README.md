@@ -49,9 +49,25 @@ représentant ~2×10⁵ étoiles avec la luminosité et la couleur moyennes de s
 table `keep(composante, t, L_cut)` retire exactement la part déjà rendue en étoiles individuelles :
 le total lumineux est conservé quel que soit le budget.
 
+### Lumière non résolue près de la caméra
+
+Là où le champ lointain devient granuleux (centre galactique, voisinage immédiat), chaque noeud de
+l'octree situé à moins de 4,5 fois sa taille rend sa lumière résiduelle sous forme de quad gaussien
+(`glow.ts`), avec fondu croisé vers le champ lointain. La résolution suit donc l'octree.
+
+### Systèmes stellaires
+
+À moins de 0,05 pc d'une étoile, son système est généré (`system.ts`) : compagnon éventuel (fraction
+de binaires croissante avec la masse), planètes (rocheuses, super-terres, géantes de glace et de gaz,
+joviennes chaudes) placées par rapport à la ligne des glaces, orbites képlériennes calculées en double
+précision côté CPU (`render/system.ts`), disques stellaires résolus avec assombrissement centre-bord,
+planètes éclairées avec phases. L'étoile correspondante est retirée du rendu LOD (`uSkip`).
+
 ### Physique
 
 - IMF de Kroupa 0,01 à 150 M☉ ; naines brunes incluses.
+- Objets discrets : 157 amas globulaires (profil de Plummer), ~2500 amas ouverts et ~5000 régions HII
+  dans les bras, Sgr A*.
 - Évolution (`stellar.ts` / `stellar.glsl`) : séquence principale, géante rouge, supergéante,
   nébuleuse planétaire, naine blanche refroidissante, supernova (flash ~100 ans + rémanent), étoile à
   neutrons, trou noir.
@@ -69,10 +85,11 @@ densité stationnaire), les autres ont des dates de naissance absolues.
 | --- | --- |
 | ZQSD / WASD, souris (clic) | vol libre, molette : vitesse, Alt : ×5 |
 | Espace / Maj | haut / bas |
-| T, [ ] | pause, vitesse du temps (1 an/s à 1 Ga/s) |
+| T, [ ] | pause, vitesse du temps (1 jour/s à 1 Ga/s) |
 | 0 | retour à aujourd'hui (13 Ga) |
 | R / G / H | Soleil / vue extérieure / vue de dessus |
 | F | viser l'étoile la plus proche |
+| J | sauter à 40 UA de l'étoile la plus proche (vue du système) |
 | E | auto-exposition |
 
 Le panneau de droite règle le temps, le budget d'étoiles, l'exposition, le bloom, le champ lointain

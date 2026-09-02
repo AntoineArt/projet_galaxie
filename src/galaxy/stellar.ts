@@ -109,8 +109,8 @@ export function stellarState(m: number, age: number, out: StarState): StarState 
     return out;
   }
   const tsn = tpost - tsg;
-  // flash (~100 ans) puis rémanent (~20 000 ans)
-  if (tsn < 0.1) { out.L = 3e9 * Math.exp(-tsn / 1e-4) + 1e5 * Math.exp(-tsn / 0.02); out.T = tsn < 5e-4 ? 12000 : 30000; out.phase = PHASE.SUPERNOVA; out.radius = 1; return out; }
+  // flash (~300 ans : la résolution temporelle des naissances en float32 est ~600 ans) puis rémanent (~20 000 ans)
+  if (tsn < 0.1) { out.L = 2e9 * Math.exp(-tsn / 3e-4) + 1e5 * Math.exp(-tsn / 0.02); out.T = tsn < 1e-3 ? 12000 : 30000; out.phase = PHASE.SUPERNOVA; out.radius = 1; return out; }
   if (m < 25) { out.L = 1e-5 * Math.exp(-tsn / 1000) + 1e-8; out.T = 800000; out.phase = PHASE.NEUTRON_STAR; out.radius = 1.5e-5; return out; }
   out.L = 0; out.T = 3000; out.phase = PHASE.BLACK_HOLE; out.radius = 4e-5 * m; return out;
 }

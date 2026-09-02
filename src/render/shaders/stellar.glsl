@@ -57,7 +57,7 @@ vec3 stellarState(float m, float age) {
     return vec3(lms * (2.0 + 2.0 * f), T, 4.0);
   }
   float tsn = tpost - tsg;
-  if (tsn < 0.1) return vec3(3e9 * exp(-tsn / 1e-4) + 1e5 * exp(-tsn / 0.02), tsn < 5e-4 ? 12000.0 : 30000.0, 8.0);
+  if (tsn < 0.1) return vec3(2e9 * exp(-tsn / 3e-4) + 1e5 * exp(-tsn / 0.02), tsn < 1e-3 ? 12000.0 : 30000.0, 8.0);
   if (m < 25.0) return vec3(1e-5 * exp(-tsn / 1000.0) + 1e-8, 800000.0, 6.0);
   return vec3(0.0, 3000.0, 7.0);
 }
