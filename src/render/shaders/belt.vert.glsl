@@ -19,6 +19,7 @@ uniform float uPixelScale;
 out vec3 vColor;
 out float vIntensity;
 out float vSize;
+out float vProfile;
 
 #define AU_PC 4.848e-6
 
@@ -39,6 +40,7 @@ void main() {
   float sz = clamp(aSize, 1.0, 3.0);
   gl_PointSize = sz;
   vSize = sz;
+  vProfile = 0.0;
   // marqueur : brillance constante, atténuée si le point est très loin par rapport à son rayon orbital
   vIntensity = 0.5 * clamp(aA * AU_PC * 3.0 / max(d, 1e-9), 0.02, 1.0);
   vColor = vec3(0.75, 0.7, 0.62);

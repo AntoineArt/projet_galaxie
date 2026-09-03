@@ -5,7 +5,7 @@ import type { Objects, Pickable } from '../render/objects';
 import type { SystemRenderer } from '../render/system';
 import type { BodyPos, StarSystem } from '../galaxy/system';
 import { AU_PC } from '../galaxy/system';
-import { PHASE, PHASE_NAMES } from '../galaxy/stellar';
+import { PHASE, PHASE_NAMES, tMS } from '../galaxy/stellar';
 
 export type Selection =
   | { kind: 'star'; star: NearStar }
@@ -120,6 +120,10 @@ export class SelectionManager {
       if (!st) return 1e-8;
       // trou noir : rayon de l'ombre (2,6 r_s), agrandi ×3 comme dans le rendu
       if (st.state.phase === PHASE.BLACK_HOLE) return 3 * 2.6 * 9.6e-14 * st.mass;
+      // coquilles en expansion (mêmes lois que star.vert.glsl)
+      const tms = tMS(st.mass);
+      if (st.state.phase === PHASE.PLANETARY_NEBULA) return 0.05 + 0.5 * ((st.age - tms * 1.15) / 0.03);
+      if (st.state.phase === PHASE.SUPERNOVA) { const tsn = st.age - tms * 1.1; return tsn > 1e-3 ? Math.pow(tsn * 1e3, 0.4) : 1e-6; }
       return Math.max(st.state.radius, 1e-3) * 2.25e-8;
     }
     if (sel.kind === 'object') return sel.obj.radius;
@@ -131,6 +135,7 @@ export class SelectionManager {
     if (sel.kind === 'star') {
       const ph = this.probe.selected?.state.phase;
       const compact = ph === PHASE.WHITE_DWARF || ph === PHASE.NEUTRON_STAR || ph === PHASE.BLACK_HOLE;
+      if (ph === PHASE.PLANETARY_NEBULA || ph === PHASE.SUPERNOVA) return Math.max(this.radius() * 3.5, 40 * AU_PC);
       return compact ? Math.max(this.radius() * 45, 2e-12) : Math.max(40 * AU_PC, this.radius() * 30);
     }
     if (sel.kind === 'object') return sel.obj.kind === 'trou noir supermassif' ? 0.3 : sel.obj.radius * 2.5;

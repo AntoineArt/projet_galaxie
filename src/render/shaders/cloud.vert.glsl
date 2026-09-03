@@ -20,6 +20,7 @@ uniform float uSoft; // 1 = profil doux (nébuleuse)
 out vec3 vColor;
 out float vIntensity;
 out float vSize;
+out float vProfile;
 
 void main() {
   vec3 p = position - uCamPat;
@@ -35,6 +36,7 @@ void main() {
   b *= min(1.0, (sz / max(px, 1.0)) * (sz / max(px, 1.0))); // taille plafonnée : conserve la brillance par pixel
   gl_PointSize = sz;
   vSize = sz;
+  vProfile = 0.0;
   vIntensity = b / max(1.0, 0.35 * sz * sz) * (uSoft > 0.5 ? 0.6 : 1.0);
   if (d < aRadius) vIntensity *= d / aRadius; // à l'intérieur : atténue
   vColor = aColor * trans / max(trans.g, 1e-4);

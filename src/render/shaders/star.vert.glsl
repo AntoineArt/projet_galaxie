@@ -34,6 +34,7 @@ uniform vec4 uVisTab[NBINS * 16]; // quantile visible [tranche][seuil], 64 seuil
 out vec3 vColor;
 out float vIntensity;
 out float vSize;
+out float vProfile; // 0 étoile, 1 coquille (rémanent de supernova, nébuleuse planétaire)
 
 #include <stellar>
 #include <extinction>
@@ -116,7 +117,7 @@ void main() {
 
   float tb = birthInBin(bin, r6 * 0.9999);
   float age = uTime - tb;
-  vec3 st = stellarState(m, age);
+  vec4 st = stellarState(m, age);
   float L = st.x;
   if (uDebugBin > 1.5) L = 1e6;
   if (L <= 0.0) { cull(); return; }
@@ -160,12 +161,18 @@ void main() {
   float b = flux * uExposure;
   float sz = 1.5 + uSizeGain * log2(max(b, 1.0));
   float radiusPc = sqrt(L) * pow(5778.0 / st.y, 2.0) * 2.25e-8;
+  float maxSize = uMaxSize;
+  vProfile = 0.0;
+  // coquilles en expansion : rémanent de supernova (r ~ 1 pc à 1 ka, loi de Sedov t^0.4), nébuleuse planétaire (0,5 pc à 30 ka)
+  if (st.z == 8.0 && st.w > 1e-3) { radiusPc = pow(st.w * 1e3, 0.4); vProfile = 1.0; maxSize = 256.0; sz = 1.0; }
+  else if (st.z == 9.0) { radiusPc = 0.05 + 0.5 * (st.w / 0.03); vProfile = 1.0; maxSize = 256.0; sz = 1.0; }
   float physPx = radiusPc / d * uPixelScale * 2.0;
-  sz = clamp(max(sz, physPx), 1.0, uMaxSize);
+  sz = clamp(max(sz, physPx), 1.0, maxSize);
   gl_PointSize = sz;
   vSize = sz;
   vIntensity = b / max(1.0, 0.35 * sz * sz) * soft * fade;
   vColor = blackbody(st.y) * trans / max(trans.g, 1e-4);
   if (uDebugBin > 0.5) { vColor = uDebugBin > 2.5 ? vec3(0.1, 1.0, 0.1) : (bin >= 21 ? vec3(1.0, 0.1, 0.1) : (bin >= 4 ? vec3(0.1, 1.0, 0.1) : vec3(0.2, 0.3, 1.0))); vIntensity = 0.5; }
-  if (st.z == 8.0) vColor = mix(vColor, vec3(1.0, 0.9, 0.8), 0.5);
+  if (st.z == 8.0) vColor = vProfile > 0.5 ? vec3(0.9, 0.45, 0.35) : mix(vColor, vec3(1.0, 0.9, 0.8), 0.5); // rémanent : Hα + [SII]
+  if (st.z == 9.0 && vProfile > 0.5) vColor = vec3(0.35, 0.9, 0.7); // nébuleuse planétaire : [OIII]
 }

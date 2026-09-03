@@ -28,15 +28,15 @@ float tempMS(float m) { return min(m < 1.0 ? 5778.0 * pow(m, 0.3) : 5778.0 * pow
 float tMS(float m) { return max(3.0, 10000.0 * pow(m, -2.5)); }
 
 // phases : 0 non née, 1 naine brune, 2 SP, 3 géante, 4 supergéante, 5 naine blanche, 6 étoile à neutrons, 7 trou noir, 8 supernova, 9 néb. planétaire
-// retourne vec3(L, T, phase)
-vec3 stellarState(float m, float age) {
-  if (age < 0.0) return vec3(0.0, 3000.0, 0.0);
-  if (m < 0.08) return vec3(1e-4 * exp(-age / 500.0) + 1e-7, 1200.0 + 800.0 * exp(-age / 500.0), 1.0);
+// retourne vec4(L, T, phase, temps écoulé dans la phase)
+vec4 stellarState(float m, float age) {
+  if (age < 0.0) return vec4(0.0, 3000.0, 0.0, 0.0);
+  if (m < 0.08) return vec4(1e-4 * exp(-age / 500.0) + 1e-7, 1200.0 + 800.0 * exp(-age / 500.0), 1.0, age);
   float lms = lumMS(m);
   float tms = tMS(m);
   if (age < tms) {
     float f = age / tms;
-    return vec3(lms * (1.0 + 0.5 * f * f), tempMS(m) * (1.0 - 0.06 * f), 2.0);
+    return vec4(lms * (1.0 + 0.5 * f * f), tempMS(m) * (1.0 - 0.06 * f), 2.0, age);
   }
   float tpost = age - tms;
   if (m < 8.0) {
@@ -44,22 +44,22 @@ vec3 stellarState(float m, float age) {
     if (tpost < tg) {
       float f = tpost / tg;
       float peak = 1.0 + 2500.0 / (pow(m, 3.5) + 0.7);
-      return vec3(lms * (1.0 + (peak - 1.0) * pow(f, 2.5)), 5000.0 - 1600.0 * f, 3.0);
+      return vec4(lms * (1.0 + (peak - 1.0) * pow(f, 2.5)), 5000.0 - 1600.0 * f, 3.0, tpost);
     }
     float twd = tpost - tg;
-    if (twd < 0.03) return vec3(3000.0 * (1.0 - twd / 0.03) + 20.0, 60000.0, 9.0);
-    return vec3(0.1 / pow(1.0 + twd / 20.0, 1.4), 60000.0 / pow(1.0 + twd / 20.0, 0.4), 5.0);
+    if (twd < 0.03) return vec4(3000.0 * (1.0 - twd / 0.03) + 20.0, 60000.0, 9.0, twd);
+    return vec4(0.1 / pow(1.0 + twd / 20.0, 1.4), 60000.0 / pow(1.0 + twd / 20.0, 0.4), 5.0, twd);
   }
   float tsg = 0.1 * tms;
   if (tpost < tsg) {
     float f = tpost / tsg;
     float T = m > 40.0 ? 30000.0 : tempMS(m) * (1.0 - f) + 3600.0 * f;
-    return vec3(lms * (2.0 + 2.0 * f), T, 4.0);
+    return vec4(lms * (2.0 + 2.0 * f), T, 4.0, tpost);
   }
   float tsn = tpost - tsg;
-  if (tsn < 0.1) return vec3(2e9 * exp(-tsn / 3e-4) + 1e5 * exp(-tsn / 0.02), tsn < 1e-3 ? 12000.0 : 30000.0, 8.0);
-  if (m < 25.0) return vec3(1e-5 * exp(-tsn / 1000.0) + 1e-8, 800000.0, 6.0);
-  return vec3(0.0, 3000.0, 7.0);
+  if (tsn < 0.1) return vec4(2e9 * exp(-tsn / 3e-4) + 1e5 * exp(-tsn / 0.02), tsn < 1e-3 ? 12000.0 : 30000.0, 8.0, tsn);
+  if (m < 25.0) return vec4(1e-5 * exp(-tsn / 1000.0) + 1e-8, 800000.0, 6.0, tsn);
+  return vec4(0.0, 3000.0, 7.0, tsn);
 }
 
 // composante : 0 bulbe, 1 disque mince, 2 disque épais, 3 halo

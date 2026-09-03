@@ -173,12 +173,12 @@ export class Probe {
    * Cherche l'étoile la plus proche satisfaisant un prédicat sur son état, dans le noeud courant et ses 26 voisins
    * (toutes les étoiles, résidus compris). Utilisé par les boutons "trouver un trou noir / une naine blanche...".
    */
-  findNearest(camPat: THREE.Vector3, time: number, pred: (st: StarState, mass: number) => boolean): NearStar | null {
+  findNearest(camPat: THREE.Vector3, time: number, pred: (st: StarState, mass: number) => boolean, ring = 1): NearStar | null {
     const ix0 = Math.floor((camPat.x + P.ROOT_HALF) / SIZE), iy0 = Math.floor((camPat.y + P.ROOT_HALF) / SIZE), iz0 = Math.floor((camPat.z + P.ROOT_HALF) / SIZE);
     let best = Infinity;
     let bestHit: StarHit | null = null;
     const st = this.tmpState;
-    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -ring; dx <= ring; dx++) for (let dy = -ring; dy <= ring; dy++) for (let dz = -ring; dz <= ring; dz++) {
       this.enumerate(ix0 + dx, iy0 + dy, iz0 + dz, time, 0, true, 300000, (h) => {
         const ex = h.px - camPat.x, ey = h.py - camPat.y, ez = h.pz - camPat.z;
         const d2 = ex * ex + ey * ey + ez * ez;

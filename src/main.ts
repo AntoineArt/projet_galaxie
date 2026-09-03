@@ -233,9 +233,9 @@ function frame(): void {
   }
   if (hud.findRequested) {
     const pred = hud.findRequested; hud.findRequested = null;
-    const found = probe.findNearest(camPat, state.time, pred);
+    const found = probe.findNearest(camPat, state.time, pred, 1) ?? probe.findNearest(camPat, state.time, pred, 2);
     if (found) { selection.current = { kind: 'star', star: found }; controls.stopOrbit(); }
-    hud.notice(found ? '' : 'rien de tel dans les 27 noeuds autour de la caméra (~200 pc)');
+    hud.notice(found ? '' : 'rien de tel dans les 125 noeuds autour de la caméra (~300 pc)');
   }
   // position monde de la sélection (suivie chaque frame : les astres bougent avec le temps)
   selPosValid = selection.worldPos(controls.position, theta, selPos) !== null;

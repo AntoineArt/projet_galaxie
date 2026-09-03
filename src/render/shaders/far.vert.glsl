@@ -29,6 +29,7 @@ uniform vec2 uYoung; // base, supplément bras
 out vec3 vColor;
 out float vIntensity;
 out float vSize;
+out float vProfile;
 
 void main() {
   vec3 p = position - uCamPat;
@@ -68,6 +69,7 @@ void main() {
   float sz = clamp(max(px, uPointBase + 0.8 * log2(max(b, 1.0))), 1.0, uMaxSize);
   gl_PointSize = sz;
   vSize = sz;
+  vProfile = 0.0;
   vIntensity = b / max(1.0, 0.35 * sz * sz);
   vColor = rgb;
 }
