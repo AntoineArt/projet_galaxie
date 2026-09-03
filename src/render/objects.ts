@@ -17,10 +17,14 @@ function gauss(rng: () => number): number {
 interface Cloud { points: THREE.Points; mat: THREE.RawShaderMaterial }
 
 export interface GlobularInfo { pos: THREE.Vector3; members: number; radius: number }
+export type PickKind = 'amas globulaire' | 'amas ouvert' | 'région HII' | 'nébuleuse par réflexion' | 'nébuleuse OIII' | 'trou noir supermassif';
+/** objet sélectionnable : position (réf. motif), rayon (pc) et fiche */
+export interface Pickable { kind: PickKind; pos: THREE.Vector3; radius: number; info: string[] }
 
 export class Objects {
   group = new THREE.Group();
   globulars: GlobularInfo[] = [];
+  pickables: Pickable[] = [];
   private clouds: Cloud[] = [];
   private haloPop: PopTable;
   private tmp = new Float32Array(4);
@@ -43,6 +47,7 @@ export class Objects {
         const members = Math.pow(10, 4.5 + rng() * 1.7);
         const rc = 2 + rng() * 6; // rayon de Plummer (pc)
         this.globulars.push({ pos: new THREE.Vector3(gx, gy, gz), members, radius: rc });
+        this.pickables.push({ kind: 'amas globulaire', pos: new THREE.Vector3(gx, gy, gz), radius: rc * 4, info: [`~${(members / 1000).toFixed(0)} k étoiles, rayon de coeur ${rc.toFixed(1)} pc`, `distance au centre ${(r / 1000).toFixed(1)} kpc, population du halo (~12 Ga)`] });
         for (let i = 0; i < PER; i++) {
           // profil de Plummer
           const u = rng();
@@ -76,9 +81,11 @@ export class Objects {
         L[k] = (big ? 3e5 : 3e4) * (0.5 + rng());
         const t = rng();
         // rose Hα dominant, parfois bleu (réflexion) ou vert-bleu (OIII)
-        if (t < 0.7) { col[k * 3] = 1.0; col[k * 3 + 1] = 0.3; col[k * 3 + 2] = 0.42; }
-        else if (t < 0.85) { col[k * 3] = 0.45; col[k * 3 + 1] = 0.6; col[k * 3 + 2] = 1.0; }
-        else { col[k * 3] = 0.5; col[k * 3 + 1] = 0.95; col[k * 3 + 2] = 0.85; }
+        let kind: PickKind;
+        if (t < 0.7) { col[k * 3] = 1.0; col[k * 3 + 1] = 0.3; col[k * 3 + 2] = 0.42; kind = 'région HII'; }
+        else if (t < 0.85) { col[k * 3] = 0.45; col[k * 3 + 1] = 0.6; col[k * 3 + 2] = 1.0; kind = 'nébuleuse par réflexion'; }
+        else { col[k * 3] = 0.5; col[k * 3 + 1] = 0.95; col[k * 3 + 2] = 0.85; kind = 'nébuleuse OIII'; }
+        this.pickables.push({ kind, pos: new THREE.Vector3(x, y, z), radius: rad[k], info: [`rayon ${rad[k].toFixed(0)} pc, ${(L[k] / 1e3).toFixed(0)} k L☉`, kind === 'région HII' ? 'gaz ionisé par des étoiles OB jeunes (Hα)' : kind === 'nébuleuse par réflexion' ? 'poussière éclairée par des étoiles bleues' : 'gaz chaud, raies interdites [OIII]'] });
         k++;
       }
       this.clouds.push(this.makeCloud(pos.subarray(0, k * 3), L.subarray(0, k), col.subarray(0, k * 3), rad.subarray(0, k), 1, 160));
@@ -99,6 +106,7 @@ export class Objects {
         if (rng() * 0.003 > w) continue;
         const members = 100 + Math.pow(10, 1.5 + rng() * 1.8);
         const rc = 1.5 + rng() * 3;
+        this.pickables.push({ kind: 'amas ouvert', pos: new THREE.Vector3(x, y, z), radius: rc * 3, info: [`~${members.toFixed(0)} étoiles, rayon ${rc.toFixed(1)} pc`, 'jeune (< 300 Ma), dans un bras spiral'] });
         for (let i = 0; i < PER; i++) {
           const u = rng();
           const rr = rc / Math.sqrt(Math.pow(Math.max(u, 1e-6), -2 / 3) - 1);
@@ -116,6 +124,7 @@ export class Objects {
 
     // --- Sgr A* : source compacte au centre
     {
+      this.pickables.push({ kind: 'trou noir supermassif', pos: new THREE.Vector3(0, 0, 0), radius: 3, info: ['Sgr A* : 4×10⁶ M☉, rayon de Schwarzschild 0,08 UA', 'phase quasar entre 0,8 et 2,5 Ga (disque d\'accrétion, jets)'] });
       const pos = new Float32Array([0, 0, 0, 0, 0, 0]);
       const L = new Float32Array([4e4, 2e5]);
       const col = new Float32Array([1.0, 0.5, 0.2, 0.6, 0.4, 1.0]);

@@ -18,6 +18,7 @@ import { GlowRenderer } from './render/glow';
 import { Population } from './galaxy/population';
 import { SystemRenderer } from './render/system';
 import { buildSystem, type StarSystem } from './galaxy/system';
+import { SelectionManager } from './ui/selection';
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -29,7 +30,7 @@ renderer.info.autoReset = false;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 1e-7, 5e5); // near = 0,02 UA : pas de test de profondeur, seule la coupure compte
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 1e-12, 5e5); // near = 30 km : pas de test de profondeur, seule la coupure compte
 camera.position.set(0, 0, 0);
 
 const composer = new EffectComposer(renderer);
@@ -74,8 +75,20 @@ const controls = new FlyControls(renderer.domElement);
 controls.position.set(-9000, -32000, 22000);
 controls.lookAt(new THREE.Vector3(0, 0, 0));
 controls.speed = 3000;
-const hud = new Hud(state, lod, controls);
 const probe = new Probe(lodLocal);
+const selection = new SelectionManager(probe, objects, systemR);
+const hud = new Hud(state, lod, controls, selection);
+let thetaNow = 0;
+const selPos = new THREE.Vector3();
+let selPosValid = false;
+controls.onClick = (x, y) => {
+  const th = thetaNow;
+  const cm = Math.cos(-th), sm = Math.sin(-th);
+  const pp = controls.position;
+  const cp = new THREE.Vector3(cm * pp.x - sm * pp.y, sm * pp.x + cm * pp.y, pp.z);
+  selection.pick(x, y, camera, controls.position, cp, th, state.time, lod.fluxMin);
+  controls.stopOrbit();
+};
 (window as unknown as { galaxy: { probe: unknown; systemR: unknown } }).galaxy.probe = probe;
 (window as unknown as { galaxy: { probe: unknown; systemR: unknown } }).galaxy.systemR = systemR;
 
@@ -85,7 +98,7 @@ const camPat = new THREE.Vector3();
 const lastCamPat = new THREE.Vector3(1e9, 0, 0);
 const lastQuat = new THREE.Quaternion();
 let tRef = state.time;
-const cullCam = new THREE.PerspectiveCamera(60, 1, 1e-7, 5e5);
+const cullCam = new THREE.PerspectiveCamera(60, 1, 1e-12, 5e5);
 const projView = new THREE.Matrix4();
 const viewRot = new THREE.Matrix4();
 
@@ -146,6 +159,7 @@ function frame(): void {
   hud.handleKeys(controls, probe);
 
   const theta = P.PATTERN_OMEGA * state.time;
+  thetaNow = theta;
   const c = Math.cos(-theta), s = Math.sin(-theta);
   const p = controls.position;
   camPat.set(c * p.x - s * p.y, s * p.x + c * p.y, p.z);
@@ -214,12 +228,27 @@ function frame(): void {
   probe.update(camPat, state.time, now);
   if (hud.pickRequested) {
     hud.pickRequested = false;
-    // rayon au centre de la vue, converti dans le référentiel du motif
-    const dirW = new THREE.Vector3(0, 0, -1).applyQuaternion(controls.quaternion);
-    const dirPat = new THREE.Vector3(c * dirW.x - s * dirW.y, s * dirW.x + c * dirW.y, dirW.z);
-    probe.pick(camPat, dirPat, state.time, lod.fluxMin);
+    selection.pick(innerWidth / 2, innerHeight / 2, camera, controls.position, camPat, theta, state.time, lod.fluxMin);
+    controls.stopOrbit();
   }
-  hud.updateMarker(probe.selected, camera, controls.position, theta);
+  // position monde de la sélection (suivie chaque frame : les astres bougent avec le temps)
+  selPosValid = selection.worldPos(controls.position, theta, selPos) !== null;
+  if (selection.current && !selPosValid) { selection.clear(); controls.stopOrbit(); }
+  hud.updateMarker(selPosValid ? selPos : null, camera, controls.position);
+  if (selPosValid && (hud.visitRequested || hud.orbitRequested)) {
+    const radius = selection.radius();
+    const dist = hud.visitRequested ? selection.visitDistance() : Math.max(controls.position.distanceTo(selPos), radius * 1.5);
+    hud.visitRequested = hud.orbitRequested = false;
+    if (dist < controls.position.distanceTo(selPos) * 0.999 || dist > controls.position.distanceTo(selPos) * 1.001) {
+      // on se place à la distance voulue en gardant la direction d'approche
+      const dir = new THREE.Vector3().subVectors(controls.position, selPos);
+      if (dir.lengthSq() < 1e-30) dir.set(1, 0, 0.3);
+      dir.normalize().multiplyScalar(dist);
+      controls.position.copy(selPos).add(dir);
+    }
+    controls.startOrbit(() => (selPosValid ? selPos : controls.position), dist, Math.max(radius * 1.5, 1e-9));
+    controls.speed = Math.max(dist / 4, 1e-8);
+  }
   // système stellaire résolu : étoile (sélectionnée sinon la plus proche) à moins de 0,05 pc (~10 000 UA)
   const near = probe.selected && probe.selected.dist < 0.05 ? probe.selected : probe.nearest;
   if (near && near.dist < 0.05) {

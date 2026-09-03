@@ -5,6 +5,7 @@ import type { FlyControls } from '../controls';
 import type { Probe } from '../galaxy/probe';
 import { PHASE_NAMES } from '../galaxy/stellar';
 import type { StarSystem } from '../galaxy/system';
+import type { SelectionManager } from './selection';
 
 export interface AppState {
   time: number; timeSpeed: number; paused: boolean; exposure: number; autoExposure: boolean;
@@ -54,8 +55,23 @@ export class Hud {
   private marker = document.getElementById('marker')!;
   private tmpV = new THREE.Vector3();
 
-  constructor(private state: AppState, private lod: { stats: LodStats; glow: { count: number } }, private controls: FlyControls) {
+  private selEl = document.getElementById('sel')!;
+  private selTitle = document.createElement('div');
+  private selBody = document.createElement('div');
+  private selBtns = document.createElement('div');
+  /** demandes d'action émises par les boutons, consommées par la boucle principale */
+  visitRequested = false;
+  orbitRequested = false;
+
+  constructor(private state: AppState, private lod: { stats: LodStats; glow: { count: number } }, private controls: FlyControls, private selection: SelectionManager) {
     this.buildPanel();
+    this.selTitle.className = 'title';
+    this.selBody.style.whiteSpace = 'pre';
+    const mkBtn = (label: string, fn: () => void) => { const b = document.createElement('button'); b.textContent = label; b.onclick = (e) => { e.stopPropagation(); fn(); }; this.selBtns.append(b); return b; };
+    mkBtn('Visiter', () => { this.visitRequested = true; });
+    mkBtn('Orbiter', () => { this.orbitRequested = true; });
+    mkBtn('×', () => { this.selection.clear(); this.controls.stopOrbit(); });
+    this.selEl.append(this.selTitle, this.selBody, this.selBtns);
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
       this.pressed.add(e.code);
@@ -107,7 +123,9 @@ export class Hud {
     const s = this.state;
     const p = this.pressed;
     if (p.has('KeyX')) this.pickRequested = true;
-    if (p.has('Escape')) probe.clearSelection();
+    if (p.has('Escape')) { this.selection.clear(); controls.stopOrbit(); }
+    if (p.has('KeyV') && this.selection.current) this.visitRequested = true;
+    if (p.has('KeyO') && this.selection.current) this.orbitRequested = true;
     const focus = probe.selected ?? probe.nearest;
     if (p.has('KeyJ') && focus) {
       // saut à 40 UA de l'étoile la plus proche, dans le plan de son système
@@ -131,12 +149,10 @@ export class Hud {
     p.clear();
   }
 
-  /** anneau autour de l'étoile sélectionnée */
-  updateMarker(sel: { pos: THREE.Vector3 } | null, camera: THREE.PerspectiveCamera, camWorld: THREE.Vector3, theta: number): void {
-    if (!sel) { this.marker.style.display = 'none'; return; }
-    const c = Math.cos(theta), sn = Math.sin(theta);
-    const q = sel.pos;
-    const v = this.tmpV.set(c * q.x - sn * q.y - camWorld.x, sn * q.x + c * q.y - camWorld.y, q.z - camWorld.z);
+  /** anneau autour de l'astre sélectionné (position monde) */
+  updateMarker(pos: THREE.Vector3 | null, camera: THREE.PerspectiveCamera, camWorld: THREE.Vector3): void {
+    if (!pos) { this.marker.style.display = 'none'; return; }
+    const v = this.tmpV.copy(pos).sub(camWorld);
     v.applyQuaternion(camera.quaternion.clone().invert());
     if (v.z >= 0) { this.marker.style.display = 'none'; return; }
     v.applyMatrix4(camera.projectionMatrix);
@@ -171,12 +187,22 @@ export class Hud {
     ];
     this.hud.textContent = lines.join('\n');
 
+    const sel = this.selection.current;
+    if (sel) {
+      this.selEl.style.display = 'block';
+      this.starEl.style.display = 'none';
+      this.selTitle.textContent = this.selection.title() + (this.controls.orbit ? '   (en orbite)' : '');
+      const th = P.PATTERN_OMEGA * s.time;
+      this.selBody.textContent = this.selection.lines(system, this.controls.position, th).join('\n');
+      return;
+    }
+    this.selEl.style.display = 'none';
     const n = focus;
     if (n) {
       this.starEl.style.display = 'block';
       const ph = n.state.phase;
       const info2 = [
-        probe.selected ? `étoile sélectionnée  #${n.index}` : `étoile la plus proche  #${n.index}`,
+        `étoile la plus proche  #${n.index}`,
         `distance   ${fmtDist(n.dist)}`,
         `composante ${COMP_NAMES[n.comp]}`,
         `masse      ${n.mass < 0.1 ? n.mass.toFixed(3) : n.mass.toFixed(2)} M☉`,
@@ -184,14 +210,15 @@ export class Hud {
         `phase      ${PHASE_NAMES[ph]}`,
         `L = ${n.state.L.toExponential(2)} L☉   T = ${n.state.T.toFixed(0)} K`,
         `rayon      ${n.state.radius.toPrecision(3)} R☉`,
-        this.lookTarget ? '[F] suivi actif' : '[F] pour viser',
+        this.lookTarget ? '[F] suivi actif' : '[F] pour viser   clic sur un astre : sélection',
       ];
       if (system) {
         info2.push('');
         if (system.companion) info2.push(`compagnon  ${system.companion.mass.toFixed(2)} M☉, a = ${system.companion.a.toFixed(1)} UA, ${PHASE_NAMES[system.companion.state.phase]}`);
         else info2.push('étoile simple');
         info2.push(`planètes   ${system.planets.length}  (ligne des glaces ${system.snowLine.toFixed(1)} UA)`);
-        system.planets.forEach((p, i) => info2.push(`  ${i + 1}. ${p.kind.padEnd(16)} a=${p.a.toFixed(2)} UA  R=${p.radius.toFixed(1)} R⊕  P=${p.period < 1 ? (p.period * 365.25).toFixed(0) + ' j' : p.period.toFixed(1) + ' a'}`));
+        system.planets.forEach((p, i) => info2.push(`  ${i + 1}. ${p.kind.padEnd(16)} a=${p.a.toFixed(2)} UA  R=${p.radius.toFixed(1)} R⊕  ${p.moons.length ? p.moons.length + ' lune' + (p.moons.length > 1 ? 's' : '') : ''}${p.rings ? ' anneaux' : ''}`));
+        for (const b of system.belts) info2.push(`  ceinture ${b.kind === 'Kuiper' ? 'de Kuiper' : "d'astéroïdes"}  ${b.inner.toFixed(1)} à ${b.outer.toFixed(1)} UA`);
       }
       this.starEl.textContent = info2.join('\n');
     } else this.starEl.style.display = 'none';

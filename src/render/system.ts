@@ -1,13 +1,18 @@
-// Rendu du système stellaire le plus proche : disques stellaires résolus, planètes éclairées, orbites.
-// Positions calculées en double précision côté CPU, relatives à la caméra.
+// Rendu du système stellaire courant : disques stellaires résolus, trous noirs, planètes et lunes éclairées,
+// ceintures et anneaux, orbites. Positions calculées en double précision côté CPU, relatives à la caméra.
 import * as THREE from 'three';
-import { AU_PC, REARTH_RSUN, RSUN_PC, orbitPosition, type StarSystem } from '../galaxy/system';
-import { blackbodyRGB } from '../galaxy/stellar';
+import beltVert from './shaders/belt.vert.glsl?raw';
+import starFrag from './shaders/star.frag.glsl?raw';
+import { vertexShader, fragmentShader } from './shaderlib';
+import { AU_PC, systemBodies, orbitPosition, type StarSystem, type BodyPos } from '../galaxy/system';
+import { blackbodyRGB, PHASE } from '../galaxy/stellar';
 
 const BODY_FLOATS = 12; // rel xyz, rayon (pc), couleur rgb, intensité, type, lumière xyz (dir vers l'étoile, monde)
-const MAX_BODIES = 12;
+const MAX_BODIES = 64;
 const ORBIT_SEG = 96;
+const MAX_ORBITS = 40;
 
+// types : 0 étoile, 1.x planète/lune (fraction = nature de la surface), 3 trou noir
 const bodyVert = `
 in vec2 position;
 in vec3 aRel; in float aRadius; in vec3 aColor; in float aIntensity; in float aType; in vec3 aLight;
@@ -16,18 +21,17 @@ out vec2 vUv; out vec3 vColor; out float vIntensity; out float vType; out vec3 v
 void main() {
   float d = max(length(aRel), 1e-12);
   float px = aRadius / d * uPixelScale;
-  float minPx = aType > 0.5 ? 1.5 : 1.0;
+  float minPx = aType > 2.5 ? 6.0 : (aType > 0.5 ? 1.5 : 1.0);
   float r = max(aRadius, minPx * d / uPixelScale);
-  float ext = aType > 0.5 ? 1.0 : 3.0; // étoile : marge pour la couronne
+  float ext = aType > 0.5 ? (aType > 2.5 ? 2.5 : 1.0) : 3.0; // étoile : couronne ; trou noir : halo de lentille
   vec4 v = uView * vec4(aRel, 1.0);
   v.xy += position * r * ext;
   gl_Position = uProj * v;
   vUv = position * ext;
   vColor = aColor;
-  // brillance par pixel : flux réparti sur le disque affiché (conservation quand le disque est agrandi)
   float rPx = max(px, minPx);
   vIntensity = aIntensity / (3.1416 * rPx * rPx);
-  if (aType > 0.5) vIntensity = max(vIntensity, 0.6); // planètes : plancher de visibilité (marqueur)
+  if (aType > 0.5 && aType < 2.5) vIntensity = clamp(vIntensity, 0.6, 1.4); // planètes : plancher de visibilité (marqueur), plafond (pas d'éblouissement)
   vType = aType;
   vLightView = (uView * vec4(aLight, 0.0)).xyz;
   vPx = rPx;
@@ -36,65 +40,117 @@ const bodyFrag = `
 precision highp float;
 in vec2 vUv; in vec3 vColor; in float vIntensity; in float vType; in vec3 vLightView; in float vPx;
 out vec4 fragColor;
+// bruit de valeur 3D (surfaces procédurales)
+float hash3(vec3 p) { p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3)); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float vnoise(vec3 x) {
+  vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(hash3(i), hash3(i + vec3(1,0,0)), f.x), mix(hash3(i + vec3(0,1,0)), hash3(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(hash3(i + vec3(0,0,1)), hash3(i + vec3(1,0,1)), f.x), mix(hash3(i + vec3(0,1,1)), hash3(i + vec3(1,1,1)), f.x), f.y), f.z);
+}
+float fbm(vec3 p) { return 0.5 * vnoise(p) + 0.25 * vnoise(p * 2.03) + 0.125 * vnoise(p * 4.07) + 0.0625 * vnoise(p * 8.11); }
 void main() {
   float r2 = dot(vUv, vUv);
+  if (vType > 2.5) {
+    // trou noir : ombre (opaque) entourée d'un anneau de photons et d'un halo de lentille
+    float r = sqrt(r2);
+    if (r > 2.5) discard;
+    float shadow = 1.0 - smoothstep(0.96, 1.0, r);
+    float ring = exp(-pow((r - 1.08) / 0.05, 2.0)) * 6.0 + exp(-pow((r - 1.25) / 0.25, 2.0)) * 0.8;
+    float halo = r > 1.0 ? 0.12 * exp(-(r - 1.0) * 2.0) : 0.0;
+    vec3 glow = vColor * (ring + halo) * vIntensity;
+    fragColor = vec4(glow, max(shadow, 0.0));
+    return;
+  }
   if (vType > 0.5) {
     if (r2 > 1.0) discard;
     vec3 n = vec3(vUv, sqrt(max(0.0, 1.0 - r2)));
     float lit = vPx < 2.5 ? 0.6 : max(0.0, dot(n, normalize(vLightView)));
     float aa = smoothstep(1.0, 0.8, r2);
-    fragColor = vec4(min(vColor * vIntensity * (0.03 + lit) * aa, 2e4), 1.0);
+    vec3 albedo = vColor;
+    if (vPx > 4.0) {
+      // surface procédurale selon la nature du corps (partie fractionnaire du type)
+      float kind = fract(vType) * 5.0; // 0 rocheuse, 1 glacée, 2 géante gazeuse, 3 géante de glace, 4 jovienne chaude
+      float seed = floor(vIntensity * 977.0) * 0.37; // varie d'un corps à l'autre
+      if (kind < 1.5) {
+        float f = fbm(n * 6.0 + seed);
+        albedo *= 0.7 + 0.6 * f;
+        if (kind > 0.5) albedo = mix(albedo, vec3(0.95), smoothstep(0.55, 0.7, f) * 0.6); // calottes / glaces brillantes
+      } else {
+        // bandes de latitude déformées par turbulence
+        float lat = n.y + 0.15 * (fbm(n * 4.0 + seed) - 0.5);
+        float bands = 0.5 + 0.5 * sin(lat * (kind > 3.5 ? 14.0 : 22.0) + seed);
+        albedo *= 0.75 + 0.45 * bands;
+        if (kind > 3.5) albedo = mix(albedo, vec3(0.9, 0.5, 0.3), 0.3 * bands); // jovienne chaude : rougeoiement
+      }
+    }
+    fragColor = vec4(min(albedo * vIntensity * (0.03 + lit) * aa, 2e4), 1.0);
   } else {
     if (r2 > 9.0) discard;
     float r = sqrt(r2);
     float disk = r < 1.0 ? (1.0 - 0.6 * (1.0 - sqrt(max(0.0, 1.0 - r2)))) : 0.0;
     float corona = r >= 1.0 ? 0.08 * exp(-(r - 1.0) * 2.5) : 0.0;
     float aa = smoothstep(1.02, 0.98, r);
-    // plafond : limite l'éblouissement (bloom) d'un disque très brillant ; plus bas si le disque est résolu
-    float cap = vPx > 3.0 ? 60.0 : 150.0;
+    float cap = vPx > 3.0 ? 12.0 : 150.0;
     fragColor = vec4(min(vColor * vIntensity * (disk * aa + corona), cap), 1.0);
   }
 }`;
 
+export interface SystemBodyRef { body: BodyPos; rel: THREE.Vector3; abs: THREE.Vector3; type: number; label: string }
+
 export class SystemRenderer {
   group = new THREE.Group();
   system: StarSystem | null = null;
-  private bodies: THREE.Mesh;
+  /** corps du système à cette frame, positions relatives caméra (monde) : pour la sélection */
+  bodies: SystemBodyRef[] = [];
   private bodyMat: THREE.RawShaderMaterial;
+  private bhMat: THREE.RawShaderMaterial;
   private bodyBuf: THREE.InstancedInterleavedBuffer;
-  private bodyGeo = new THREE.InstancedBufferGeometry();
+  private bhBuf: THREE.InstancedInterleavedBuffer;
+  private bodyGeo: THREE.InstancedBufferGeometry;
+  private bhGeo: THREE.InstancedBufferGeometry;
   private orbits: THREE.LineSegments;
   private orbitPos: THREE.BufferAttribute;
+  private belts: THREE.Points | null = null;
+  private beltMat: THREE.RawShaderMaterial;
+  private beltSystemId = '';
+  private beltT0 = 0; // époque (années) des phases des ceintures : uT reste petit (précision float)
   private tmp = new Float64Array(3);
   private tmp2 = new Float64Array(3);
-  private starPat = new THREE.Vector3();
+  private posList: BodyPos[] = [];
 
   constructor() {
-    this.bodyGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 1, -1, 1, 1, -1, 1]), 2));
-    this.bodyGeo.setIndex([0, 1, 2, 0, 2, 3]);
-    this.bodyBuf = new THREE.InstancedInterleavedBuffer(new Float32Array(BODY_FLOATS * MAX_BODIES), BODY_FLOATS);
-    this.bodyBuf.setUsage(THREE.DynamicDrawUsage);
-    const b = this.bodyBuf;
-    this.bodyGeo.setAttribute('aRel', new THREE.InterleavedBufferAttribute(b, 3, 0));
-    this.bodyGeo.setAttribute('aRadius', new THREE.InterleavedBufferAttribute(b, 1, 3));
-    this.bodyGeo.setAttribute('aColor', new THREE.InterleavedBufferAttribute(b, 3, 4));
-    this.bodyGeo.setAttribute('aIntensity', new THREE.InterleavedBufferAttribute(b, 1, 7));
-    this.bodyGeo.setAttribute('aType', new THREE.InterleavedBufferAttribute(b, 1, 8));
-    this.bodyGeo.setAttribute('aLight', new THREE.InterleavedBufferAttribute(b, 3, 9));
-    this.bodyGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e9);
-    this.bodyGeo.instanceCount = 0;
-    this.bodyMat = new THREE.RawShaderMaterial({
-      glslVersion: THREE.GLSL3, vertexShader: `precision highp float;\n` + bodyVert, fragmentShader: bodyFrag,
-      uniforms: { uProj: { value: new THREE.Matrix4() }, uView: { value: new THREE.Matrix4() }, uPixelScale: { value: 1000 } },
-      blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, transparent: true, side: THREE.DoubleSide,
-    });
-    this.bodies = new THREE.Mesh(this.bodyGeo, this.bodyMat);
-    this.bodies.frustumCulled = false;
-    this.bodies.renderOrder = 40;
-    this.group.add(this.bodies);
+    const mk = (blending: THREE.Blending) => {
+      const geo = new THREE.InstancedBufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 1, -1, 1, 1, -1, 1]), 2));
+      geo.setIndex([0, 1, 2, 0, 2, 3]);
+      const buf = new THREE.InstancedInterleavedBuffer(new Float32Array(BODY_FLOATS * MAX_BODIES), BODY_FLOATS);
+      buf.setUsage(THREE.DynamicDrawUsage);
+      geo.setAttribute('aRel', new THREE.InterleavedBufferAttribute(buf, 3, 0));
+      geo.setAttribute('aRadius', new THREE.InterleavedBufferAttribute(buf, 1, 3));
+      geo.setAttribute('aColor', new THREE.InterleavedBufferAttribute(buf, 3, 4));
+      geo.setAttribute('aIntensity', new THREE.InterleavedBufferAttribute(buf, 1, 7));
+      geo.setAttribute('aType', new THREE.InterleavedBufferAttribute(buf, 1, 8));
+      geo.setAttribute('aLight', new THREE.InterleavedBufferAttribute(buf, 3, 9));
+      geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e9);
+      geo.instanceCount = 0;
+      const mat = new THREE.RawShaderMaterial({
+        glslVersion: THREE.GLSL3, vertexShader: `precision highp float;\n` + bodyVert, fragmentShader: bodyFrag,
+        uniforms: { uProj: { value: new THREE.Matrix4() }, uView: { value: new THREE.Matrix4() }, uPixelScale: { value: 1000 } },
+        blending, depthTest: false, depthWrite: false, transparent: true, side: THREE.DoubleSide,
+        premultipliedAlpha: blending === THREE.NormalBlending, // trou noir : ombre opaque + lueur additive
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.frustumCulled = false;
+      return { geo, buf, mat, mesh };
+    };
+    const a = mk(THREE.AdditiveBlending);
+    this.bodyGeo = a.geo; this.bodyBuf = a.buf; this.bodyMat = a.mat; a.mesh.renderOrder = 40;
+    const b = mk(THREE.NormalBlending);
+    this.bhGeo = b.geo; this.bhBuf = b.buf; this.bhMat = b.mat; b.mesh.renderOrder = 41;
+    this.group.add(a.mesh, b.mesh);
 
     const ogeo = new THREE.BufferGeometry();
-    this.orbitPos = new THREE.BufferAttribute(new Float32Array(MAX_BODIES * ORBIT_SEG * 2 * 3), 3);
+    this.orbitPos = new THREE.BufferAttribute(new Float32Array(MAX_ORBITS * ORBIT_SEG * 2 * 3), 3);
     this.orbitPos.setUsage(THREE.DynamicDrawUsage);
     ogeo.setAttribute('position', this.orbitPos);
     ogeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e9);
@@ -102,75 +158,164 @@ export class SystemRenderer {
     this.orbits.frustumCulled = false;
     this.orbits.renderOrder = 39;
     this.group.add(this.orbits);
+
+    this.beltMat = new THREE.RawShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      vertexShader: vertexShader(beltVert),
+      fragmentShader: fragmentShader(starFrag),
+      uniforms: {
+        uProj: { value: new THREE.Matrix4() }, uView: { value: new THREE.Matrix4() },
+        uCenters: { value: new Float32Array(30) }, uT: { value: 0 }, uInc0: { value: 0 }, uNode0: { value: 0 },
+        uExposure: { value: 1 }, uPixelScale: { value: 1000 }, uDebug: { value: 0 }, uProfile: { value: 0 },
+      },
+      blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, transparent: true,
+    });
     this.group.visible = false;
+  }
+
+  /** construit le nuage de points des ceintures et anneaux d'un système */
+  private buildBelts(sys: StarSystem, t0: number): void {
+    this.beltT0 = t0;
+    if (this.belts) { this.group.remove(this.belts); this.belts.geometry.dispose(); this.belts = null; }
+    const items: { a: number; period: number; phase: number; inc: number; node: number; parent: number; size: number }[] = [];
+    const push = (a: number, period: number, phase: number, inc: number, node: number, parent: number, size: number) => items.push({ a, period, phase, inc, node, parent, size });
+    let h = 12345;
+    const rnd = () => { h = (Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) + 0x9e3779b9) >>> 0; return (h & 0xffffff) / 16777216; };
+    const M = Math.max(sys.mass, 0.05);
+    for (const belt of sys.belts) {
+      h = belt.seed;
+      for (let i = 0; i < belt.n; i++) {
+        const a = belt.inner + (belt.outer - belt.inner) * Math.pow(rnd(), 0.8);
+        push(a, Math.sqrt((a * a * a) / M), rnd() * 2 * Math.PI, sys.inc0 + (rnd() - 0.5) * belt.thickness * 2, sys.node0 + (rnd() - 0.5) * 0.4, -1, 1.0 + rnd());
+      }
+    }
+    sys.planets.forEach((pl, i) => {
+      if (!pl.rings) return;
+      const rp = (pl.radius * 0.009168 * 2.25e-8) / AU_PC; // rayon planétaire en UA
+      const mp = pl.mass / 333000;
+      for (let k = 0; k < 700; k++) {
+        const a = rp * (pl.rings.inner + (pl.rings.outer - pl.rings.inner) * rnd());
+        push(a, Math.sqrt((a * a * a) / mp), rnd() * 2 * Math.PI, pl.inc + (rnd() - 0.5) * 0.004, pl.node, i, 1.2);
+      }
+    });
+    if (items.length === 0) return;
+    // phases ramenées à l'époque t0 (double précision) : le shader n'ajoute que t - t0
+    for (const it of items) it.phase = (it.phase + 2 * Math.PI * ((t0 / it.period) % 1)) % (2 * Math.PI);
+    const n = items.length;
+    const arr = (f: (it: (typeof items)[0]) => number) => new THREE.BufferAttribute(Float32Array.from(items, f), 1);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    geo.setAttribute('aA', arr((it) => it.a));
+    geo.setAttribute('aPeriod', arr((it) => it.period));
+    geo.setAttribute('aPhase', arr((it) => it.phase));
+    geo.setAttribute('aInc', arr((it) => it.inc));
+    geo.setAttribute('aNode', arr((it) => it.node));
+    geo.setAttribute('aParent', arr((it) => it.parent));
+    geo.setAttribute('aSize', arr((it) => it.size));
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e9);
+    this.belts = new THREE.Points(geo, this.beltMat);
+    this.belts.frustumCulled = false;
+    this.belts.renderOrder = 38;
+    this.group.add(this.belts);
   }
 
   /** starPat : position de l'étoile (réf. motif) ; theta : rotation motif->monde ; camWorld : caméra (monde) */
   update(system: StarSystem | null, starPat: THREE.Vector3, theta: number, camWorld: THREE.Vector3, camera: THREE.PerspectiveCamera, viewRot: THREE.Matrix4, time: number, exposure: number, pixelScale: number, showOrbits: boolean): void {
     this.system = system;
+    this.bodies.length = 0;
     if (!system) { this.group.visible = false; return; }
     this.group.visible = true;
-    this.starPat.copy(starPat);
     const c = Math.cos(theta), s = Math.sin(theta);
-    // étoile relative caméra (double)
     const sx = c * starPat.x - s * starPat.y - camWorld.x, sy = s * starPat.x + c * starPat.y - camWorld.y, sz = starPat.z - camWorld.z;
     const tYears = time * 1e6;
+    if (system.id !== this.beltSystemId || Math.abs(tYears - this.beltT0) > 3e4) { this.buildBelts(system, tYears); this.beltSystemId = system.id; }
+    const list = systemBodies(system, tYears, this.posList);
     const data = this.bodyBuf.array as Float32Array;
-    let n = 0;
+    const bhData = this.bhBuf.array as Float32Array;
+    let n = 0, nbh = 0;
     const col = new Float32Array(3);
-    const push = (rx: number, ry: number, rz: number, radius: number, r: number, g: number, b: number, L: number, type: number, lx: number, ly: number, lz: number) => {
-      if (n >= MAX_BODIES) return;
-      const d2 = rx * rx + ry * ry + rz * rz;
-      const o = n * BODY_FLOATS;
-      data[o] = rx; data[o + 1] = ry; data[o + 2] = rz; data[o + 3] = radius;
-      data[o + 4] = r; data[o + 5] = g; data[o + 6] = b;
-      data[o + 7] = (L / Math.max(d2, 1e-20)) * exposure;
-      data[o + 8] = type; data[o + 9] = lx; data[o + 10] = ly; data[o + 11] = lz;
-      n++;
-    };
-    // primaire
+    const centers = this.beltMat.uniforms.uCenters.value as Float32Array;
+    centers.fill(0);
+    centers[0] = sx; centers[1] = sy; centers[2] = sz;
     const P = system.primary;
-    blackbodyRGB(P.T, col);
-    push(sx, sy, sz, Math.max(P.radius, 1e-3) * RSUN_PC, col[0], col[1], col[2], P.L, 0, 0, 0, 1);
-    // compagnon (orbite autour du barycentre approximé par la primaire)
-    let cx = 0, cy = 0, cz = 0;
-    if (system.companion) {
-      const C = system.companion;
-      orbitPosition(C.a, 0.05, C.period, C.phase0, C.inc, 0, tYears, this.tmp);
-      cx = this.tmp[0] * AU_PC; cy = this.tmp[1] * AU_PC; cz = this.tmp[2] * AU_PC;
-      blackbodyRGB(C.state.T, col);
-      push(sx + cx, sy + cy, sz + cz, Math.max(C.state.radius, 1e-3) * RSUN_PC, col[0], col[1], col[2], C.state.L, 0, 0, 0, 1);
+    const push = (rx: number, ry: number, rz: number, radius: number, r: number, g: number, b: number, L: number, type: number, lx: number, ly: number, lz: number) => {
+      const d2 = rx * rx + ry * ry + rz * rz;
+      const arr = type === 3 ? bhData : data;
+      const idx = type === 3 ? nbh : n;
+      if (idx >= MAX_BODIES) return;
+      const o = idx * BODY_FLOATS;
+      arr[o] = rx; arr[o + 1] = ry; arr[o + 2] = rz; arr[o + 3] = radius;
+      arr[o + 4] = r; arr[o + 5] = g; arr[o + 6] = b;
+      arr[o + 7] = (L / Math.max(d2, 1e-20)) * exposure;
+      arr[o + 8] = type; arr[o + 9] = lx; arr[o + 10] = ly; arr[o + 11] = lz;
+      if (type === 3) nbh++; else n++;
+    };
+    const starColor = (st: { T: number; phase: number }): [number, number, number] => {
+      if (st.phase === PHASE.BLACK_HOLE) return [1.0, 0.75, 0.45];
+      blackbodyRGB(st.T, col);
+      return [col[0], col[1], col[2]];
+    };
+    for (const b of list) {
+      const rx = sx + b.x * AU_PC, ry = sy + b.y * AU_PC, rz = sz + b.z * AU_PC;
+      let type = 0, L = 0, color: [number, number, number], label = '', radius = b.radius;
+      if (b.kind === 'star' || b.kind === 'companion') {
+        const st = b.kind === 'star' ? P : system.companion!.state;
+        color = starColor(st);
+        if (st.phase === PHASE.BLACK_HOLE) { type = 3; L = 1; radius = 2.6 * 9.6e-14 * (b.kind === 'star' ? system.mass : system.companion!.mass) * 3; label = 'trou noir'; }
+        else { L = st.L; label = b.kind === 'star' ? 'étoile' : 'compagnon'; }
+      } else {
+        const pl = system.planets[b.planet];
+        const src = b.kind === 'moon' ? pl.moons[b.moon] : pl;
+        color = src.color;
+        const kindIdx = b.kind === 'moon' ? (pl.moons[b.moon].kind === 'glacée' ? 1 : 0) : (pl.kind === 'rocheuse' || pl.kind === 'super-terre' ? 0 : pl.kind === 'géante gazeuse' ? 2 : pl.kind === 'géante de glace' ? 3 : 4);
+        type = 1 + kindIdx / 5 + 0.02;
+        // lumière réfléchie : L * albédo * (R / 2a)^2 (albédo 0,3)
+        const dist = Math.sqrt(b.x * b.x + b.y * b.y + b.z * b.z);
+        L = P.L * 0.3 * Math.pow(radius / (2 * dist * AU_PC), 2);
+        label = b.kind === 'moon' ? `lune ${b.moon + 1} de la planète ${b.planet + 1}` : `planète ${b.planet + 1}`;
+        if (b.kind === 'planet') { centers[(b.planet + 1) * 3] = rx; centers[(b.planet + 1) * 3 + 1] = ry; centers[(b.planet + 1) * 3 + 2] = rz; }
+      }
+      const dist = Math.sqrt(b.x * b.x + b.y * b.y + b.z * b.z);
+      const ln = dist > 0 ? -1 / (dist * AU_PC) : 0;
+      push(rx, ry, rz, radius, color[0], color[1], color[2], L, type, b.x * AU_PC * ln, b.y * AU_PC * ln, b.z * AU_PC * ln);
+      this.bodies.push({ body: { ...b }, rel: new THREE.Vector3(rx, ry, rz), abs: new THREE.Vector3(rx + camWorld.x, ry + camWorld.y, rz + camWorld.z), type, label });
     }
-    // planètes
+    // orbites : planètes autour de l'étoile, lunes autour de leur planète
     const op = this.orbitPos.array as Float32Array;
     let ov = 0;
-    for (const pl of system.planets) {
-      orbitPosition(pl.a, pl.e, pl.period, pl.phase0, pl.inc, pl.node, tYears, this.tmp);
-      const px = this.tmp[0] * AU_PC, py = this.tmp[1] * AU_PC, pz = this.tmp[2] * AU_PC;
-      const rp = pl.radius * REARTH_RSUN * RSUN_PC;
-      // lumière réfléchie : L * albédo * (R / 2a)^2 (albédo 0,3)
-      const dist = Math.sqrt(px * px + py * py + pz * pz);
-      const Lref = P.L * 0.3 * Math.pow(rp / (2 * dist), 2);
-      const ln = 1 / Math.max(dist, 1e-12);
-      push(sx + px, sy + py, sz + pz, rp, pl.color[0], pl.color[1], pl.color[2], Lref, 1, -px * ln, -py * ln, -pz * ln);
-      if (showOrbits) {
+    if (showOrbits) {
+      const drawOrbit = (a: number, e: number, period: number, phase0: number, inc: number, node: number, cx: number, cy: number, cz: number) => {
+        if (ov / 6 + ORBIT_SEG > MAX_ORBITS * ORBIT_SEG) return;
         for (let k = 0; k < ORBIT_SEG; k++) {
-          const t0 = ((k / ORBIT_SEG) * pl.period), t1 = (((k + 1) / ORBIT_SEG) * pl.period);
-          orbitPosition(pl.a, pl.e, pl.period, pl.phase0, pl.inc, pl.node, t0, this.tmp);
-          orbitPosition(pl.a, pl.e, pl.period, pl.phase0, pl.inc, pl.node, t1, this.tmp2);
-          op[ov++] = sx + this.tmp[0] * AU_PC; op[ov++] = sy + this.tmp[1] * AU_PC; op[ov++] = sz + this.tmp[2] * AU_PC;
-          op[ov++] = sx + this.tmp2[0] * AU_PC; op[ov++] = sy + this.tmp2[1] * AU_PC; op[ov++] = sz + this.tmp2[2] * AU_PC;
+          orbitPosition(a, e, period, phase0, inc, node, (k / ORBIT_SEG) * period, this.tmp);
+          orbitPosition(a, e, period, phase0, inc, node, ((k + 1) / ORBIT_SEG) * period, this.tmp2);
+          op[ov++] = cx + this.tmp[0] * AU_PC; op[ov++] = cy + this.tmp[1] * AU_PC; op[ov++] = cz + this.tmp[2] * AU_PC;
+          op[ov++] = cx + this.tmp2[0] * AU_PC; op[ov++] = cy + this.tmp2[1] * AU_PC; op[ov++] = cz + this.tmp2[2] * AU_PC;
         }
-      }
+      };
+      system.planets.forEach((pl, i) => {
+        drawOrbit(pl.a, pl.e, pl.period, pl.phase0, pl.inc, pl.node, sx, sy, sz);
+        const cx = centers[(i + 1) * 3], cy = centers[(i + 1) * 3 + 1], cz = centers[(i + 1) * 3 + 2];
+        for (const m of pl.moons) drawOrbit(m.a, 0.01, m.period, m.phase0, pl.inc + m.inc, pl.node, cx, cy, cz);
+      });
     }
-    this.bodyGeo.instanceCount = n;
-    this.bodyBuf.needsUpdate = true;
+    this.bodyGeo.instanceCount = n; this.bodyBuf.needsUpdate = true;
+    this.bhGeo.instanceCount = nbh; this.bhBuf.needsUpdate = true;
     this.orbitPos.needsUpdate = true;
     (this.orbits.geometry as THREE.BufferGeometry).setDrawRange(0, ov / 3);
     this.orbits.visible = showOrbits && ov > 0;
-    const u = this.bodyMat.uniforms;
-    u.uProj.value.copy(camera.projectionMatrix);
-    u.uView.value.copy(viewRot);
-    u.uPixelScale.value = pixelScale;
+    for (const u of [this.bodyMat.uniforms, this.bhMat.uniforms]) {
+      u.uProj.value.copy(camera.projectionMatrix);
+      u.uView.value.copy(viewRot);
+      u.uPixelScale.value = pixelScale;
+    }
+    const bu = this.beltMat.uniforms;
+    bu.uProj.value.copy(camera.projectionMatrix);
+    bu.uView.value.copy(viewRot);
+    bu.uT.value = tYears - this.beltT0;
+    bu.uInc0.value = 0;
+    bu.uNode0.value = 0;
+    bu.uExposure.value = exposure;
+    bu.uPixelScale.value = pixelScale;
   }
 }
