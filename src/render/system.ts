@@ -18,12 +18,12 @@ const bodyVert = `
 in vec2 position;
 in vec3 aRel; in float aRadius; in vec3 aColor; in float aIntensity; in float aType; in vec3 aLight;
 uniform mat4 uProj; uniform mat4 uView; uniform float uPixelScale;
-uniform float uNow; uniform float uPulsarPeriod;
+uniform float uNow; uniform float uPulsarPeriod; uniform float uEmphasis;
 out vec2 vUv; out vec3 vColor; out float vIntensity; out float vType; out vec3 vLightView; out float vPx;
 void main() {
   float d = max(length(aRel), 1e-12);
   float px = aRadius / d * uPixelScale;
-  float minPx = aType > 3.5 ? 2.0 : (aType > 2.5 ? 3.0 : (aType > 0.5 ? 1.5 : 1.0));
+  float minPx = aType > 3.5 ? 2.0 : (aType > 2.5 ? 3.0 : (aType > 0.5 ? 1.5 + 1.5 * uEmphasis : 1.0));
   float r = max(aRadius, minPx * d / uPixelScale);
   float ext = aType > 2.5 ? 14.0 : (aType > 0.5 ? 1.0 : 3.0); // étoile : couronne ; trou noir : disque lentillé ; pulsar : faisceaux
   vec4 v = uView * vec4(aRel, 1.0);
@@ -33,7 +33,7 @@ void main() {
   vColor = aColor;
   float rPx = max(px, minPx);
   vIntensity = aIntensity / (3.1416 * rPx * rPx);
-  if (aType > 0.5 && aType < 2.5) vIntensity = clamp(vIntensity, 0.6, 1.4); // planètes : plancher de visibilité (marqueur), plafond (pas d'éblouissement)
+  if (aType > 0.5 && aType < 2.5) vIntensity = clamp(vIntensity, 0.6 + 0.7 * uEmphasis, 1.4 + 0.6 * uEmphasis); // planètes : plancher de visibilité (marqueur), plafond (pas d'éblouissement)
   if (aType > 2.5 && aType < 3.5) vIntensity = 1.0; // trou noir : disque d'accrétion à brillance fixe
   if (aType > 3.5) vIntensity = 1.0;
   vType = aType;
@@ -200,7 +200,7 @@ export class SystemRenderer {
       geo.instanceCount = 0;
       const mat = new THREE.RawShaderMaterial({
         glslVersion: THREE.GLSL3, vertexShader: `precision highp float;\n` + bodyVert, fragmentShader: bodyFrag,
-        uniforms: { uProj: { value: new THREE.Matrix4() }, uView: { value: new THREE.Matrix4() }, uPixelScale: { value: 1000 }, uNow: { value: 0 }, uPulsarPeriod: { value: 1 } },
+        uniforms: { uProj: { value: new THREE.Matrix4() }, uView: { value: new THREE.Matrix4() }, uPixelScale: { value: 1000 }, uNow: { value: 0 }, uPulsarPeriod: { value: 1 }, uEmphasis: { value: 0 } },
         blending, depthTest: false, depthWrite: false, transparent: true, side: THREE.DoubleSide,
         premultipliedAlpha: blending === THREE.NormalBlending, // trou noir : ombre opaque + lueur additive
       });
@@ -242,7 +242,7 @@ export class SystemRenderer {
       uniforms: {
         uProj: { value: new THREE.Matrix4() }, uView: { value: new THREE.Matrix4() },
         uCenters: { value: new Float32Array(30) }, uT: { value: 0 }, uInc0: { value: 0 }, uNode0: { value: 0 },
-        uExposure: { value: 1 }, uPixelScale: { value: 1000 }, uDebug: { value: 0 }, uProfile: { value: 0 },
+        uExposure: { value: 1 }, uPixelScale: { value: 1000 }, uDebug: { value: 0 }, uProfile: { value: 0 }, uEmphasis: { value: 0 },
       },
       blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, transparent: true,
     });
@@ -296,7 +296,7 @@ export class SystemRenderer {
   }
 
   /** starPat : position de l'étoile (réf. motif) ; theta : rotation motif->monde ; camWorld : caméra (monde) */
-  update(system: StarSystem | null, starPat: THREE.Vector3, theta: number, camWorld: THREE.Vector3, camera: THREE.PerspectiveCamera, viewRot: THREE.Matrix4, time: number, exposure: number, pixelScale: number, showOrbits: boolean): void {
+  update(system: StarSystem | null, starPat: THREE.Vector3, theta: number, camWorld: THREE.Vector3, camera: THREE.PerspectiveCamera, viewRot: THREE.Matrix4, time: number, exposure: number, pixelScale: number, showOrbits: boolean, emphasis = 0): void {
     this.system = system;
     this.bodies.length = 0;
     if (!system) { this.group.visible = false; return; }
@@ -406,7 +406,10 @@ export class SystemRenderer {
     this.orbitPos.needsUpdate = true;
     (this.orbits.geometry as THREE.BufferGeometry).setDrawRange(0, ov / 3);
     this.orbits.visible = showOrbits && ov > 0;
+    (this.orbits.material as THREE.LineBasicMaterial).opacity = 0.5 + 0.45 * emphasis;
+    (this.tailLines.material as THREE.LineBasicMaterial).opacity = 0.6 + 0.4 * emphasis;
     for (const u of [this.bodyMat.uniforms, this.bhMat.uniforms]) {
+      u.uEmphasis.value = emphasis;
       u.uNow.value = performance.now() / 1000;
       u.uPulsarPeriod.value = system.pulsarPeriod;
       u.uProj.value.copy(camera.projectionMatrix);
@@ -421,5 +424,6 @@ export class SystemRenderer {
     bu.uNode0.value = 0;
     bu.uExposure.value = exposure;
     bu.uPixelScale.value = pixelScale;
+    bu.uEmphasis.value = emphasis;
   }
 }

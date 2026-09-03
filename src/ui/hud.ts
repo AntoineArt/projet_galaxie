@@ -180,6 +180,32 @@ export class Hud {
     this.noticeUntil = performance.now() + 3000;
   }
 
+  private labelsEl = document.getElementById('labels')!;
+  private labelPool: HTMLDivElement[] = [];
+  /** étiquettes des corps du système courant (vue système) */
+  updateLabels(bodies: { rel: THREE.Vector3; label: string; body: { kind: string } }[], camera: THREE.PerspectiveCamera, weight: number): void {
+    let used = 0;
+    if (weight > 0.3) {
+      const inv = camera.quaternion.clone().invert();
+      for (const b of bodies) {
+        if (b.body.kind === 'moon' && b.rel.length() > 0.02 * 4.848e-6 * 200) continue; // lunes : seulement de près
+        const v = this.tmpV.copy(b.rel).applyQuaternion(inv);
+        if (v.z >= 0) continue;
+        v.applyMatrix4(camera.projectionMatrix);
+        if (Math.abs(v.x) > 1 || Math.abs(v.y) > 1) continue;
+        let el = this.labelPool[used];
+        if (!el) { el = document.createElement('div'); el.className = 'lbl'; this.labelsEl.append(el); this.labelPool.push(el); }
+        el.textContent = b.label;
+        el.style.left = `${((v.x + 1) / 2) * innerWidth}px`;
+        el.style.top = `${((1 - v.y) / 2) * innerHeight}px`;
+        el.style.opacity = `${0.85 * Math.min(1, (weight - 0.3) / 0.4)}`;
+        el.style.display = 'block';
+        if (++used >= 40) break;
+      }
+    }
+    for (let i = used; i < this.labelPool.length; i++) this.labelPool[i].style.display = 'none';
+  }
+
   /** anneau autour de l'astre sélectionné (position monde) */
   updateMarker(pos: THREE.Vector3 | null, camera: THREE.PerspectiveCamera, camWorld: THREE.Vector3): void {
     if (!pos) { this.marker.style.display = 'none'; return; }

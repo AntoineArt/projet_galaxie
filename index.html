@@ -22,6 +22,7 @@
       #find button { margin: 2px 4px 2px 0; background: #1c2230; color: #cfd6e6; border: 1px solid #3a4560; padding: 2px 7px; font: inherit; cursor: pointer; }
       #find button:hover { background: #2a3448; }
       #notice { position: fixed; top: 60%; left: 50%; transform: translate(-50%, -50%); font-size: 13px; background: rgba(8,10,16,0.8); border: 1px solid #5a4a2a; padding: 6px 12px; display: none; pointer-events: none; }
+      .lbl { position: fixed; font-size: 11px; color: #cfd6e6; opacity: 0.85; text-shadow: 0 0 4px #000; pointer-events: none; transform: translate(8px, -50%); white-space: nowrap; }
       #marker { position: fixed; width: 26px; height: 26px; border: 1.5px solid #ffd27a; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; display: none; box-shadow: 0 0 6px #000; }
       #cross { position: fixed; left: 50%; top: 50%; width: 14px; height: 14px; transform: translate(-50%, -50%); pointer-events: none; opacity: 0.5; }
       #cross::before, #cross::after { content: ''; position: absolute; background: #cfd6e6; }
@@ -41,6 +42,7 @@ T : pause temps   [ ] : vitesse du temps   R : Système solaire   G : vue galaxi
     <div id="find"></div>
     <div id="notice"></div>
     <div id="marker"></div>
+    <div id="labels"></div>
     <div id="cross"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

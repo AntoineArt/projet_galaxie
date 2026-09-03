@@ -73,6 +73,8 @@ const state = {
   showOrbits: true,
 };
 let system: StarSystem | null = null;
+/** poids de la vue système (0 : galaxie, 1 : au coeur d'un système) : atténue le fond, met en avant les corps */
+let sysW = 0;
 const sunPos = new THREE.Vector3(P.SUN_POS.x, P.SUN_POS.y, P.SUN_POS.z);
 /** le Soleil comme "étoile la plus proche" synthétique (hors champ procédural) */
 const sunStar = { dist: 0, mass: 1, age: SUN_AGE, birth: P.T_PRESENT - SUN_AGE, comp: 1, state: { L: 1, T: 5778, phase: 2, radius: 1 }, pos: sunPos, index: 0, seed: -1, bin: -1, id: SUN_ID };
@@ -202,7 +204,8 @@ function frame(): void {
   su.uFluxMin.value = lod.fluxMin;
   su.uNow.value = now / 1000;
   (su.uQTO.value as Float32Array).set(lod.qTO);
-  su.uExposure.value = state.exposure;
+  const bgExposure = state.exposure * (1 - 0.85 * sysW); // fond atténué en vue système
+  su.uExposure.value = bgExposure;
   su.uPixelScale.value = pixelScale;
 
   far.setTime(state.time);
@@ -212,7 +215,7 @@ function frame(): void {
   fu.uCamPat.value.copy(camPat);
   fu.uTheta.value = theta;
   fu.uFluxMin.value = lod.fluxMin;
-  fu.uExposure.value = state.exposure;
+  fu.uExposure.value = bgExposure;
   fu.uPixelScale.value = pixelScale;
   const du = far.dustMat.uniforms;
   du.uProj.value.copy(camera.projectionMatrix);
@@ -223,14 +226,14 @@ function frame(): void {
   far.group.children[0].visible = state.showFar;
   far.group.children[1].visible = state.showDust;
 
-  objects.update(camera, viewRot, camPat, theta, state.time, state.exposure, pixelScale);
-  galaxies.update(camera, viewRot, camPat, theta, state.exposure, pixelScale);
+  objects.update(camera, viewRot, camPat, theta, state.time, bgExposure, pixelScale);
+  galaxies.update(camera, viewRot, camPat, theta, bgExposure, pixelScale);
   const gu = glow.material.uniforms;
   gu.uProj.value.copy(camera.projectionMatrix);
   gu.uView.value.copy(viewRot);
   gu.uCamPat.value.copy(camPat);
   gu.uTheta.value = theta;
-  gu.uExposure.value = state.exposure;
+  gu.uExposure.value = bgExposure;
   gu.uPixelScale.value = pixelScale;
   gu.uDustOn.value = state.showDust ? 1 : 0;
   glow.mesh.visible = state.showFar && lod.glow.count > 0;
@@ -289,7 +292,13 @@ function frame(): void {
     }
     su.uSkip.value.set(near.seed, near.bin, near.index);
   } else { system = null; su.uSkip.value.set(-1, -1, -1); }
-  systemR.update(system, near ? near.pos : camPat, theta, controls.position, camera, viewRot, state.time, state.exposure, pixelScale, state.showOrbits);
+  // poids de la vue système : 1 à moins de 300 UA de l'étoile, 0 au-delà de 5 000 UA
+  if (system && near) {
+    const x = Math.min(1, Math.max(0, (near.dist / 4.848e-6 - 300) / 4700));
+    sysW = 1 - x * x * (3 - 2 * x);
+  } else sysW = 0;
+  systemR.update(system, near ? near.pos : camPat, theta, controls.position, camera, viewRot, state.time, state.exposure, pixelScale, state.showOrbits, sysW);
+  hud.updateLabels(systemR.bodies, camera, sysW);
   hud.update(state, camPat, probe, renderer.info, system);
   perfLog.push(performance.now() - now);
   if (perfLog.length > 2000) perfLog.splice(0, 1000);
