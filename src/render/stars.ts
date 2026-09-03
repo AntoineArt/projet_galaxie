@@ -37,6 +37,8 @@ export class StarRenderer {
         uTime: { value: 13000 },
         uTRef: { value: 13000 },
         uFluxMin: { value: 1e-6 },
+        uNow: { value: 0 },
+        uFade: { value: 0.6 },
         uExposure: { value: 1 },
         uPixelScale: { value: 1000 },
         uMaxSize: { value: 48 },

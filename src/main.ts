@@ -174,6 +174,7 @@ function frame(): void {
   su.uTime.value = state.time;
   su.uTRef.value = tRef;
   su.uFluxMin.value = lod.fluxMin;
+  su.uNow.value = now / 1000;
   (su.uQTO.value as Float32Array).set(lod.qTO);
   su.uExposure.value = state.exposure;
   su.uPixelScale.value = pixelScale;

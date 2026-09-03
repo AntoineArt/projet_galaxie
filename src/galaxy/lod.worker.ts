@@ -13,6 +13,7 @@ export interface BuildRequest {
   tRef: number;
   projView: Float32Array;
   budget: number;
+  now: number; // performance.now() du thread principal, en secondes
 }
 export interface BuildResult {
   type: 'result';
@@ -36,7 +37,7 @@ self.onmessage = (e: MessageEvent<BuildRequest>) => {
   if (m.type !== 'build') return;
   camPat.fromArray(m.camPat); anchor.fromArray(m.anchor); pv.fromArray(m.projView);
   lod.budget = m.budget;
-  const stats = lod.build(camPat, m.theta, anchor, m.tRef, pv);
+  const stats = lod.build(camPat, m.theta, anchor, m.tRef, pv, m.now);
   const transfer: ArrayBuffer[] = [];
   const buckets = lod.buckets.map((b) => {
     const data = b.data.slice(0, b.count * FLOATS_PER_INSTANCE);

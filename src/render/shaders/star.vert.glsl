@@ -3,7 +3,7 @@
 in float position; // factice (compte de sommets)
 in vec4 aA; // origine du cube (relative à l'ancre, réf. motif) xyz, taille
 in vec4 aB; // graine, N bulbe, N mince, N épais
-in vec4 aC; // N halo, fraction jeune, index de seuil (table uVis), -
+in vec4 aC; // N halo, fraction jeune, index de seuil (table uVis), naissance (s, fondu entrant) ou -mort (fondu sortant)
 in vec4 aD; // gradient de densité (x,y,z), dérive ax
 in vec4 aE; // dérive ay, phase x, phase y, facteur bras max du noeud (+2 si les résidus sont inclus)
 
@@ -15,6 +15,8 @@ uniform float uTheta; // rotation motif -> monde
 uniform float uTime; // Myr
 uniform float uTRef;
 uniform float uFluxMin;
+uniform float uNow; // s
+uniform float uFade; // durée du fondu (s)
 uniform float uExposure;
 uniform float uPixelScale; // pixels par unité d'angle
 uniform float uMaxSize;
@@ -142,7 +144,14 @@ void main() {
   float d2 = dot(rel, rel);
   float d = sqrt(d2);
   float flux = L / max(d2, 1e-10);
-  if (flux < uFluxMin * 0.5 && uDebugBin < 1.5) { cull(); return; }
+  // seuil doux : les étoiles proches du seuil s'éteignent progressivement (pas de popping quand le seuil bouge)
+  float thr = uFluxMin * nearScale(d);
+  float soft = smoothstep(0.4 * thr, 1.6 * thr, flux);
+  if (soft <= 0.0 && uDebugBin < 1.5) { cull(); return; }
+  // fondu croisé entre reconstructions
+  float born = aC.w;
+  float fade = born >= 0.0 ? smoothstep(0.0, 1.0, (uNow - born) / uFade) : 1.0 - smoothstep(0.0, 1.0, (uNow + born) / uFade);
+  if (fade <= 0.0) { cull(); return; }
   vec3 trans = dustTransmission(uCamPat, p);
   flux *= trans.g;
 
@@ -155,7 +164,7 @@ void main() {
   sz = clamp(max(sz, physPx), 1.0, uMaxSize);
   gl_PointSize = sz;
   vSize = sz;
-  vIntensity = b / max(1.0, 0.35 * sz * sz);
+  vIntensity = b / max(1.0, 0.35 * sz * sz) * soft * fade;
   vColor = blackbody(st.y) * trans / max(trans.g, 1e-4);
   if (uDebugBin > 0.5) { vColor = uDebugBin > 2.5 ? vec3(0.1, 1.0, 0.1) : (bin >= 21 ? vec3(1.0, 0.1, 0.1) : (bin >= 4 ? vec3(0.1, 1.0, 0.1) : vec3(0.2, 0.3, 1.0))); vIntensity = 0.5; }
   if (st.z == 8.0) vColor = mix(vColor, vec3(1.0, 0.9, 0.8), 0.5);

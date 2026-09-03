@@ -46,7 +46,7 @@ void main() {
   float Lold = uPopL[comp] * (1.0 - y);
   float Lyoung = uYoungL * y;
   // masque : retire la part de lumière rendue en étoiles individuelles à cette distance
-  float Lcut = uFluxMin * d2;
+  float Lcut = uFluxMin * d2 * nearScale(d);
   float fx = clamp((log(Lcut) / 2.302585 - uLumRange.x) / (uLumRange.y - uLumRange.x), 0.0, 1.0);
   float k0 = floor(uKeepT.x), ka = uKeepT.x - k0;
   float row0 = float(comp) * uKeepT.y + k0;

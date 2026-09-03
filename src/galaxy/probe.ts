@@ -2,7 +2,7 @@
 // proche de la caméra, ou celle visée par un rayon (sélection).
 import * as THREE from 'three';
 import * as P from './params';
-import { LodBuilder } from './lod';
+import { LodBuilder, nearScale } from './lod';
 import { imfInv, stellarState, type StarState } from './stellar';
 import { NBINS, BIN_YOUNG0, YOUNG_ARM, YOUNG_BASE, binCounts, binComponent, birthInBin, binMassQuantile, computeQTO, youngFraction } from './bins';
 import { armFactor } from './density';
@@ -147,7 +147,7 @@ export class Probe {
     for (const [ix, iy, iz] of nodes) {
       const cx = -P.ROOT_HALF + (ix + 0.5) * SIZE - camPat.x, cy = -P.ROOT_HALF + (iy + 0.5) * SIZE - camPat.y, cz = -P.ROOT_HALF + (iz + 0.5) * SIZE - camPat.z;
       const dNode = Math.max(Math.sqrt(cx * cx + cy * cy + cz * cz) - SIZE * 0.87, SIZE * 0.15);
-      const visIdx = visIndex(Math.log10(fluxMin * dNode * dNode));
+      const visIdx = visIndex(Math.log10(fluxMin * dNode * dNode * nearScale(dNode)));
       this.enumerate(ix, iy, iz, time, visIdx, dNode < 150, 300000, (h) => {
         const dx = h.px - camPat.x, dy = h.py - camPat.y, dz = h.pz - camPat.z;
         const d2 = dx * dx + dy * dy + dz * dz;
@@ -156,7 +156,7 @@ export class Probe {
         const cosA = (dx * dirPat.x + dy * dirPat.y + dz * dirPat.z) / d;
         if (cosA < 0.9995) return; // > 1,8°
         stellarState(h.m, time - h.tb, st);
-        if (st.L <= 0 || st.L / d2 < fluxMin * 0.3) return;
+        if (st.L <= 0 || st.L / d2 < fluxMin * nearScale(d) * 0.4) return;
         const angle = Math.acos(Math.min(1, cosA));
         // pondération : les étoiles brillantes sont plus faciles à viser
         const score = angle / (1 + 0.15 * Math.log10(1 + (st.L / d2) / fluxMin));

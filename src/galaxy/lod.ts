@@ -16,6 +16,15 @@ export const GLOW_NEAR = 3.0;
 export const GLOW_FAR = 4.5;
 /** distance (pc) sous laquelle un noeud inclut aussi les résidus (naines blanches, étoiles à neutrons) */
 export const NEAR_DEAD = 150;
+/** bonus de proximité : le seuil de flux est multiplié par clamp((d/NEAR_D)^2, NEAR_MIN, 1) (voir nearScale, miroir GLSL) */
+export const NEAR_D = 60;
+export const NEAR_MIN = 0.04;
+export function nearScale(d: number): number {
+  const x = d / NEAR_D;
+  return Math.max(NEAR_MIN, Math.min(1, x * x));
+}
+/** durée du fondu croisé entre deux reconstructions (s) */
+export const FADE_S = 0.6;
 
 interface NodeInfo { n: Float32Array; arm: number; armMax: number; grad: Float32Array; total: number }
 
@@ -26,7 +35,9 @@ const TH = 0.75; // seuil de subdivision : taille/distance
 export class LodBuilder {
   grid: Grid;
   cache = new Map<number, NodeInfo>();
-  buckets: { data: Float32Array; count: number }[] = [];
+  buckets: { data: Float32Array; count: number; keys: number[] }[] = [];
+  /** noeuds de la construction précédente (clé -> données absolues), pour le fondu croisé */
+  private prev = new Map<number, { inst: Float32Array; born: number; bucket: number }>();
   fluxMin = 1e-6; // flux minimal rendu (L_sun / pc^2), utilisé pour les buffers courants
   private fluxMinNext = 1e-6; // prédiction pour la prochaine construction
   budget = 1_500_000;
@@ -47,7 +58,7 @@ export class LodBuilder {
   constructor(grid: Grid, pop: Population) {
     this.grid = grid;
     this.pop = pop;
-    for (let b = 0; b < NUM_BUCKETS; b++) this.buckets.push({ data: new Float32Array(FLOATS_PER_INSTANCE * 256), count: 0 });
+    for (let b = 0; b < NUM_BUCKETS; b++) this.buckets.push({ data: new Float32Array(FLOATS_PER_INSTANCE * 256), count: 0, keys: [] });
   }
 
   private static key(level: number, ix: number, iy: number, iz: number): number {
@@ -110,7 +121,7 @@ export class LodBuilder {
    * camPat : position caméra dans le référentiel du motif spiral ; theta : angle de rotation motif->monde ;
    * anchor : origine flottante (référentiel motif) ; tRef : temps de référence (Myr) pour les phases de dérive.
    */
-  build(camPat: THREE.Vector3, theta: number, anchor: THREE.Vector3, tRef: number, projView: THREE.Matrix4): LodStats {
+  build(camPat: THREE.Vector3, theta: number, anchor: THREE.Vector3, tRef: number, projView: THREE.Matrix4, now = 0): LodStats {
     const t0 = performance.now();
     this.frustum.setFromProjectionMatrix(projView);
     computeQTO(tRef, this.qTO);
@@ -124,7 +135,7 @@ export class LodBuilder {
     let prevF = -1, prevK = -1, alpha = 0.45;
     let fLo = -1, fHi = -1; // fLo : K > budget ; fHi : K < budget
     for (;;) {
-      for (const b of this.buckets) b.count = 0;
+      for (const b of this.buckets) { b.count = 0; b.keys.length = 0; }
       this.glow.count = 0;
       this.nearestD = 1e9;
       const r = this.traverse(camPat, theta, anchor, tRef);
@@ -148,13 +159,55 @@ export class LodBuilder {
       if (iter >= 6) { this.fluxMinNext = next; break; }
       this.fluxMin = next;
     }
+    this.crossfade(anchor, tRef, now);
     this.stats = { nodes, stars, fluxMin: this.fluxMin, iterations: iter, ms: performance.now() - t0, converged: this.fluxMinNext === this.fluxMin, nearest: this.nearestD };
     return this.stats;
   }
 
+  /**
+   * Fondu croisé : un noeud absent de la construction précédente (ou dont le seuil visible a changé) apparaît en
+   * fondu ; les noeuds disparus (ou remplacés) sont conservés une construction de plus en fondu sortant.
+   * inst[11] : instant de naissance (s) si >= 0, -instant de mort si < 0.
+   */
+  private crossfade(anchor: THREE.Vector3, tRef: number, now: number): void {
+    const next = new Map<number, { inst: Float32Array; born: number; bucket: number }>();
+    const outgoing: { inst: Float32Array; bucket: number }[] = [];
+    for (let b = 0; b < NUM_BUCKETS; b++) {
+      const bk = this.buckets[b];
+      for (let i = 0; i < bk.count; i++) {
+        const o = i * FLOATS_PER_INSTANCE;
+        const key = bk.keys[i];
+        const old = this.prev.get(key);
+        let born = now;
+        if (old && old.inst[10] === bk.data[o + 10]) born = old.born; // même noeud, même seuil : stable
+        else if (old) outgoing.push({ inst: old.inst, bucket: old.bucket }); // remplacé : l'ancien s'efface
+        bk.data[o + 11] = born;
+        const abs = bk.data.slice(o, o + FLOATS_PER_INSTANCE);
+        abs[0] += anchor.x; abs[1] += anchor.y; abs[2] += anchor.z;
+        next.set(key, { inst: abs, born, bucket: b });
+      }
+    }
+    for (const [key, old] of this.prev) if (!next.has(key)) outgoing.push({ inst: old.inst, bucket: old.bucket });
+    this.prev = next;
+    // noeuds sortants : réancrés, phases de dérive recalculées pour le nouveau tRef, plafonnés à la moitié du budget
+    let extra = 0;
+    const cap = this.budget * 0.5;
+    const inst = this.inst;
+    for (const og of outgoing) {
+      if (extra >= cap) break;
+      inst.set(og.inst);
+      inst[0] -= anchor.x; inst[1] -= anchor.y; inst[2] -= anchor.z;
+      inst[11] = -now;
+      const px = inst[15] * tRef, py = inst[16] * tRef;
+      inst[17] = px - Math.floor(px); inst[18] = py - Math.floor(py);
+      this.push(og.bucket, inst, -1);
+      extra += 1 << og.bucket;
+    }
+  }
+
   /** lumière non résolue (étoiles sous le seuil) d'un noeud, en sprite doux ; complémentaire du fondu du champ lointain */
   private pushGlow(cx: number, cy: number, cz: number, size: number, d: number, dEff: number, info: NodeInfo, y: number): void {
-    const logL = Math.log10(this.fluxMin * dEff * dEff);
+    const logL = Math.log10(this.fluxMin * dEff * dEff * nearScale(dEff));
     const pop = this.pop;
     let Lsum = 0, r = 0, g = 0, b = 0;
     for (let c = 0; c < 4; c++) {
@@ -181,7 +234,7 @@ export class LodBuilder {
     gl.count++;
   }
 
-  private push(b: number, v: Float32Array): void {
+  private push(b: number, v: Float32Array, key: number): void {
     const bk = this.buckets[b];
     const need = (bk.count + 1) * FLOATS_PER_INSTANCE;
     if (need > bk.data.length) {
@@ -189,6 +242,7 @@ export class LodBuilder {
       nd.set(bk.data); bk.data = nd;
     }
     bk.data.set(v, bk.count * FLOATS_PER_INSTANCE);
+    bk.keys[bk.count] = key;
     bk.count++;
   }
 
@@ -229,9 +283,10 @@ export class LodBuilder {
         for (const pl of this.frustum.planes) if (pl.distanceToPoint(v) < -R) { out = true; break; }
         if (out) continue;
       }
-      const dEff = Math.max(d, size * 0.15);
+      // distance effective : au cube, mais jamais moins qu'une fraction de la distance au centre (voisins immédiats)
+      const dEff = Math.max(d, size * 0.15, 0.35 * Math.sqrt(rx * rx + ry * ry + rz * rz));
       const Rc0 = Math.sqrt(cx * cx + cy * cy);
-      this.visIdx = visIndex(Math.log10(this.fluxMin * dEff * dEff));
+      this.visIdx = visIndex(Math.log10(this.fluxMin * dEff * dEff * nearScale(dEff)));
       const nb = this.binN;
       const arm = info.arm;
       const y = youngFraction(info.armMax, tRef);
@@ -266,7 +321,7 @@ export class LodBuilder {
       inst[8] = info.n[3]; inst[9] = y; inst[10] = this.visIdx; inst[11] = 0;
       inst[12] = info.grad[0]; inst[13] = info.grad[1]; inst[14] = info.grad[2]; inst[15] = ax;
       inst[16] = ay; inst[17] = px - Math.floor(px); inst[18] = py - Math.floor(py); inst[19] = info.armMax + (includeDead ? 2 : 0);
-      this.push(b, inst);
+      this.push(b, inst, LodBuilder.key(level, ix, iy, iz));
       stars += K; nodes++;
       if (d < this.nearestD) this.nearestD = d;
     }

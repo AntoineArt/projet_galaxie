@@ -3,7 +3,7 @@ import extinctionGlsl from './shaders/extinction.glsl?raw';
 import { ARMS, ARM_PITCH, ARM_R0, ARM_SIGMA, T_MAX_BIRTH } from '../galaxy/params';
 import { YOUNG_TAU, IMF_CUM } from '../galaxy/stellar';
 import { F_CAP, NBINS, YOUNG_AGES, YOUNG_ARM, YOUNG_BASE, YOUNG_W } from '../galaxy/bins';
-import { GLOW_FAR, GLOW_NEAR } from '../galaxy/lod';
+import { GLOW_FAR, GLOW_NEAR, NEAR_D, NEAR_MIN } from '../galaxy/lod';
 import * as THREE from 'three';
 
 const DEFINES = `#define T_MAX_BIRTH ${T_MAX_BIRTH.toFixed(1)}
@@ -14,6 +14,10 @@ const DEFINES = `#define T_MAX_BIRTH ${T_MAX_BIRTH.toFixed(1)}
 #define YOUNG_ARM ${YOUNG_ARM.toFixed(5)}
 #define GLOW_NEAR ${GLOW_NEAR.toFixed(2)}
 #define GLOW_FAR ${GLOW_FAR.toFixed(2)}
+#define NEAR_D ${NEAR_D.toFixed(1)}
+#define NEAR_MIN ${NEAR_MIN.toExponential(4)}
+// bonus de proximité du seuil de flux (miroir de lod.ts nearScale)
+float nearScale(float d) { float x = d / NEAR_D; return clamp(x * x, NEAR_MIN, 1.0); }
 const float YOUNG_AGES[7] = float[7](${YOUNG_AGES.map((a) => a.toFixed(1)).join(', ')});
 #define ARM_K ${(1 / Math.tan(ARM_PITCH)).toFixed(6)}
 #define ARM_R0 ${ARM_R0.toFixed(1)}

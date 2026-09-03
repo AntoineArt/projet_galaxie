@@ -56,6 +56,7 @@ export class LodClient {
     const req: BuildRequest = {
       type: 'build', id: this.nextId++, camPat: [camPat.x, camPat.y, camPat.z], theta,
       anchor: [anchor.x, anchor.y, anchor.z], tRef, projView: new Float32Array(projView.elements), budget: this.budget,
+      now: performance.now() / 1000,
     };
     if (this.busy) { this.pending = req; return; }
     this.send(req);
