@@ -63,7 +63,7 @@ void main() {
     float phi = atan(vUv.y, vUv.x);
     float beam = exp(-pow(sin(phi - ang) * 7.0, 2.0)) * exp(-r * 0.35) * 2.0;
     float core = exp(-r2 * 2.0) * 3.0;
-    fragColor = vec4(vColor * vIntensity * (core + beam) + vec3(0.4, 0.5, 1.0) * beam * 0.5, 1.0);
+    fragColor = vec4(vColor * vIntensity * (core + beam) + vec3(0.4, 0.5, 1.0) * beam * 0.5, 0.0);
     return;
   }
   if (vType > 2.5) {
@@ -99,7 +99,7 @@ void main() {
         if (kind > 3.5) albedo = mix(albedo, vec3(0.9, 0.5, 0.3), 0.3 * bands); // jovienne chaude : rougeoiement
       }
     }
-    fragColor = vec4(min(albedo * vIntensity * (0.03 + lit) * aa, 2e4), 1.0);
+    fragColor = vec4(min(albedo * vIntensity * (0.03 + lit), 2e4) * aa, aa); // prémultiplié : disque opaque
   } else {
     if (r2 > 9.0) discard;
     float r = sqrt(r2);
@@ -271,15 +271,16 @@ export class SystemRenderer {
     const P = system.primary;
     const push = (rx: number, ry: number, rz: number, radius: number, r: number, g: number, b: number, L: number, type: number, lx: number, ly: number, lz: number) => {
       const d2 = rx * rx + ry * ry + rz * rz;
-      const arr = type === 3 ? bhData : data;
-      const idx = type === 3 ? nbh : n;
+      const opaque = type >= 1; // planètes, lunes, comètes, trou noir, pulsar : mélange normal (corps opaques)
+      const arr = opaque ? bhData : data;
+      const idx = opaque ? nbh : n;
       if (idx >= MAX_BODIES) return;
       const o = idx * BODY_FLOATS;
       arr[o] = rx; arr[o + 1] = ry; arr[o + 2] = rz; arr[o + 3] = radius;
       arr[o + 4] = r; arr[o + 5] = g; arr[o + 6] = b;
       arr[o + 7] = (L / Math.max(d2, 1e-20)) * exposure;
       arr[o + 8] = type; arr[o + 9] = lx; arr[o + 10] = ly; arr[o + 11] = lz;
-      if (type === 3) nbh++; else n++;
+      if (opaque) nbh++; else n++;
     };
     const starColor = (st: { T: number; phase: number }): [number, number, number] => {
       if (st.phase === PHASE.BLACK_HOLE) return [1.0, 0.75, 0.45];
@@ -296,7 +297,7 @@ export class SystemRenderer {
         else if (st.phase === PHASE.NEUTRON_STAR) { type = 4; L = 1; label = 'pulsar'; }
         else { L = st.L; label = b.kind === 'star' ? 'étoile' : 'compagnon'; }
       } else if (b.kind === 'comet') {
-        type = 1.02; color = [0.8, 0.85, 0.9]; label = `comète ${b.planet + 1}`;
+        type = 1.02; color = [0.8, 0.85, 0.9]; label = system.comets[b.planet].name ?? `comète ${b.planet + 1}`;
         const dist = Math.sqrt(b.x * b.x + b.y * b.y + b.z * b.z);
         L = P.L * 0.3 * Math.pow(radius / (2 * dist * AU_PC), 2);
         // queue : s'éloigne de l'étoile, longueur ~ 0,5 UA * (2 UA / r)^2, plafonnée
@@ -311,7 +312,7 @@ export class SystemRenderer {
         // lumière réfléchie : L * albédo * (R / 2a)^2 (albédo 0,3)
         const dist = Math.sqrt(b.x * b.x + b.y * b.y + b.z * b.z);
         L = P.L * 0.3 * Math.pow(radius / (2 * dist * AU_PC), 2);
-        label = b.kind === 'moon' ? `lune ${b.moon + 1} de la planète ${b.planet + 1}` : `planète ${b.planet + 1}`;
+        label = b.kind === 'moon' ? (pl.moons[b.moon].name ?? `lune ${b.moon + 1} de ${pl.name ?? 'la planète ' + (b.planet + 1)}`) : (pl.name ?? `planète ${b.planet + 1}`);
         if (b.kind === 'planet') { centers[(b.planet + 1) * 3] = rx; centers[(b.planet + 1) * 3 + 1] = ry; centers[(b.planet + 1) * 3 + 2] = rz; }
       }
       const dist = Math.sqrt(b.x * b.x + b.y * b.y + b.z * b.z);

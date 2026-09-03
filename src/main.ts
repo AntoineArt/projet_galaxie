@@ -20,6 +20,8 @@ import { Population } from './galaxy/population';
 import { SystemRenderer } from './render/system';
 import { buildSystem, type StarSystem } from './galaxy/system';
 import { SelectionManager } from './ui/selection';
+import { buildSolarSystem, SUN_AGE, SUN_ID } from './galaxy/solar';
+import { stellarState } from './galaxy/stellar';
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -71,6 +73,9 @@ const state = {
   showOrbits: true,
 };
 let system: StarSystem | null = null;
+const sunPos = new THREE.Vector3(P.SUN_POS.x, P.SUN_POS.y, P.SUN_POS.z);
+/** le Soleil comme "étoile la plus proche" synthétique (hors champ procédural) */
+const sunStar = { dist: 0, mass: 1, age: SUN_AGE, birth: P.T_PRESENT - SUN_AGE, comp: 1, state: { L: 1, T: 5778, phase: 2, radius: 1 }, pos: sunPos, index: 0, seed: -1, bin: -1, id: SUN_ID };
 (window as unknown as { galaxy: unknown }).galaxy = { state, lod, lodLocal, stars, far, objects, glow, probe: null as unknown, systemR: null as unknown, selection: null as unknown, camera, THREE, P, controls: null as unknown };
 const controls = new FlyControls(renderer.domElement);
 (window as unknown as { galaxy: { controls: unknown } }).galaxy.controls = controls;
@@ -262,8 +267,18 @@ function frame(): void {
     controls.speed = Math.max(dist / 4, 1e-8);
   }
   // système stellaire résolu : étoile (sélectionnée sinon la plus proche) à moins de 0,05 pc (~10 000 UA)
-  const near = probe.selected && probe.selected.dist < 0.05 ? probe.selected : probe.nearest;
-  if (near && near.dist < 0.05) {
+  // le Soleil : système solaire réel si la caméra est à moins de 0,05 pc de sa position
+  const sunDist = camPat.distanceTo(sunPos);
+  let near = probe.selected && probe.selected.dist < 0.05 ? probe.selected : probe.nearest;
+  if (sunDist < 0.05 && !(probe.selected && probe.selected.dist < sunDist)) {
+    const age = state.time - (P.T_PRESENT - SUN_AGE);
+    sunStar.dist = sunDist; sunStar.age = age; sunStar.birth = P.T_PRESENT - SUN_AGE;
+    stellarState(1, age, sunStar.state);
+    near = sunStar;
+    probe.nearest = sunStar;
+    if (!system || system.id !== SUN_ID || Math.abs(system.age - age) > 0.01) system = buildSolarSystem(state.time);
+    su.uSkip.value.set(-1, -1, -1);
+  } else if (near && near.dist < 0.05) {
     if (!system || system.id !== near.id || Math.abs(system.age - near.age) > 0) {
       const seedHash = (near.seed ^ Math.imul(near.bin + 1, 0x01000193) ^ Math.imul(near.index + 1, 0x9e3779b9)) >>> 0;
       system = buildSystem(near.id, seedHash, near.mass, near.age);

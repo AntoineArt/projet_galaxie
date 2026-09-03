@@ -172,7 +172,7 @@ export class SelectionManager {
         if (system.companion) out.push(`compagnon  ${system.companion.mass.toFixed(2)} M☉, a = ${system.companion.a.toFixed(1)} UA, ${PHASE_NAMES[system.companion.state.phase]}`);
         else out.push('étoile simple');
         out.push(`planètes   ${system.planets.length}  (ligne des glaces ${system.snowLine.toFixed(1)} UA)`);
-        system.planets.forEach((p, i) => out.push(`  ${i + 1}. ${p.kind.padEnd(16)} a=${p.a.toFixed(2)} UA  R=${p.radius.toFixed(1)} R⊕  ${p.moons.length ? p.moons.length + ' lune' + (p.moons.length > 1 ? 's' : '') : ''}${p.rings ? ' anneaux' : ''}`));
+        system.planets.forEach((p, i) => out.push(`  ${i + 1}. ${(p.name ?? p.kind).padEnd(16)} a=${p.a.toFixed(2)} UA  R=${p.radius.toFixed(1)} R⊕  ${p.moons.length ? p.moons.length + ' lune' + (p.moons.length > 1 ? 's' : '') : ''}${p.rings ? ' anneaux' : ''}`));
         for (const b of system.belts) out.push(`  ceinture ${b.kind === 'Kuiper' ? 'de Kuiper' : "d'astéroïdes"}  ${b.inner.toFixed(1)} à ${b.outer.toFixed(1)} UA`);
         if (system.comets.length) out.push(`  comètes    ${system.comets.length}`);
         if (n.state.phase === PHASE.NEUTRON_STAR) out.push(`  pulsar     période ${system.pulsarPeriod.toFixed(3)} s`);
@@ -195,14 +195,14 @@ export class SelectionManager {
     const pl = system.planets[b.planet];
     if (!pl) return out;
     if (b.kind === 'planet') {
-      out.push(`type       ${pl.kind}`, `rayon      ${pl.radius.toFixed(2)} R⊕   masse ${pl.mass.toFixed(1)} M⊕`, `orbite     a = ${pl.a.toFixed(2)} UA, e = ${pl.e.toFixed(2)}, P = ${pl.period < 1 ? (pl.period * 365.25).toFixed(0) + ' j' : pl.period.toFixed(1) + ' a'}`);
+      out.push(`type       ${pl.kind}${pl.name ? ' (' + pl.name + ')' : ''}`, `rayon      ${pl.radius.toFixed(2)} R⊕   masse ${pl.mass.toFixed(1)} M⊕`, `orbite     a = ${pl.a.toFixed(2)} UA, e = ${pl.e.toFixed(2)}, P = ${pl.period < 1 ? (pl.period * 365.25).toFixed(0) + ' j' : pl.period.toFixed(1) + ' a'}`);
       const Teq = 278 * Math.pow(system.primary.L, 0.25) / Math.sqrt(pl.a) * Math.pow(0.7, 0.25);
       out.push(`T équilibre ${Teq.toFixed(0)} K${Teq > 240 && Teq < 330 && pl.kind !== 'géante gazeuse' && pl.kind !== 'géante de glace' ? '  (zone habitable)' : ''}`);
       if (pl.moons.length) out.push(`lunes      ${pl.moons.length}`);
       if (pl.rings) out.push(`anneaux    ${pl.rings.inner.toFixed(1)} à ${pl.rings.outer.toFixed(1)} rayons planétaires`);
     } else {
       const m = pl.moons[b.moon];
-      if (m) out.push(`type       lune ${m.kind}`, `rayon      ${m.radius.toFixed(2)} R⊕`, `orbite     a = ${(m.a * 1.496e8).toFixed(0)} km, P = ${(m.period * 365.25).toFixed(1)} j`);
+      if (m) out.push(`type       lune ${m.kind}${m.name ? ' (' + m.name + ')' : ''}`, `rayon      ${m.radius.toFixed(2)} R⊕`, `orbite     a = ${(m.a * 1.496e8).toFixed(0)} km, P = ${(m.period * 365.25).toFixed(1)} j`);
     }
     return out;
   }

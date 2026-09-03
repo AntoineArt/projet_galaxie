@@ -20,6 +20,7 @@ export interface Planet {
   mass: number; // masses terrestres
   moons: Moon[];
   rings: { inner: number; outer: number } | null; // en rayons planétaires
+  name?: string;
 }
 
 export interface Moon {
@@ -30,6 +31,7 @@ export interface Moon {
   radius: number; // rayons terrestres
   color: [number, number, number];
   kind: 'rocheuse' | 'glacée';
+  name?: string;
 }
 
 export interface Belt {
@@ -44,6 +46,7 @@ export interface Belt {
 export interface Comet {
   a: number; e: number; period: number; phase0: number; inc: number; node: number;
   radius: number; // rayons terrestres (noyau, agrandi pour la visibilité)
+  name?: string;
 }
 
 export interface Companion {

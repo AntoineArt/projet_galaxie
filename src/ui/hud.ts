@@ -154,7 +154,16 @@ export class Hud {
     if (p.has('KeyT')) s.paused = !s.paused;
     if (p.has('BracketRight')) { this.speedIdx = Math.min(TIME_SPEEDS.length - 1, this.speedIdx + 1); s.timeSpeed = TIME_SPEEDS[this.speedIdx]; }
     if (p.has('BracketLeft')) { this.speedIdx = Math.max(0, this.speedIdx - 1); s.timeSpeed = TIME_SPEEDS[this.speedIdx]; }
-    if (p.has('KeyR')) { controls.position.set(P.SUN_POS.x, P.SUN_POS.y, P.SUN_POS.z); controls.lookAt(new THREE.Vector3(0, 0, 0)); controls.speed = 2; }
+    if (p.has('KeyR')) {
+      // Système solaire : à 30 UA du Soleil, légèrement au-dessus de l'écliptique
+      const th = P.PATTERN_OMEGA * s.time;
+      const c = Math.cos(th), sn = Math.sin(th);
+      const sun = new THREE.Vector3(c * P.SUN_POS.x - sn * P.SUN_POS.y, sn * P.SUN_POS.x + c * P.SUN_POS.y, P.SUN_POS.z);
+      controls.position.copy(sun).add(new THREE.Vector3(30 * 4.848e-6, 0, 8 * 4.848e-6));
+      controls.lookAt(sun);
+      controls.speed = 2 * 4.848e-6;
+      controls.stopOrbit();
+    }
     if (p.has('KeyG')) { controls.position.set(-9000, -32000, 22000); controls.lookAt(new THREE.Vector3(0, 0, 0)); controls.speed = 3000; }
     if (p.has('KeyH')) { controls.position.set(0, 0, 45000); controls.lookAt(new THREE.Vector3(0, 0, 0)); controls.speed = 3000; }
     if (p.has('KeyF')) this.lookTarget = this.lookTarget ? null : new THREE.Vector3();
@@ -225,7 +234,7 @@ export class Hud {
       this.starEl.style.display = 'block';
       const ph = n.state.phase;
       const info2 = [
-        `étoile la plus proche  #${n.index}`,
+        n.id === 'soleil' ? 'le Soleil' : `étoile la plus proche  #${n.index}`,
         `distance   ${fmtDist(n.dist)}`,
         `composante ${COMP_NAMES[n.comp]}`,
         `masse      ${n.mass < 0.1 ? n.mass.toFixed(3) : n.mass.toFixed(2)} M☉`,
@@ -240,7 +249,7 @@ export class Hud {
         if (system.companion) info2.push(`compagnon  ${system.companion.mass.toFixed(2)} M☉, a = ${system.companion.a.toFixed(1)} UA, ${PHASE_NAMES[system.companion.state.phase]}`);
         else info2.push('étoile simple');
         info2.push(`planètes   ${system.planets.length}  (ligne des glaces ${system.snowLine.toFixed(1)} UA)`);
-        system.planets.forEach((p, i) => info2.push(`  ${i + 1}. ${p.kind.padEnd(16)} a=${p.a.toFixed(2)} UA  R=${p.radius.toFixed(1)} R⊕  ${p.moons.length ? p.moons.length + ' lune' + (p.moons.length > 1 ? 's' : '') : ''}${p.rings ? ' anneaux' : ''}`));
+        system.planets.forEach((p, i) => info2.push(`  ${i + 1}. ${(p.name ?? p.kind).padEnd(16)} a=${p.a.toFixed(2)} UA  R=${p.radius.toFixed(1)} R⊕  ${p.moons.length ? p.moons.length + ' lune' + (p.moons.length > 1 ? 's' : '') : ''}${p.rings ? ' anneaux' : ''}`));
         for (const b of system.belts) info2.push(`  ceinture ${b.kind === 'Kuiper' ? 'de Kuiper' : "d'astéroïdes"}  ${b.inner.toFixed(1)} à ${b.outer.toFixed(1)} UA`);
       }
       this.starEl.textContent = info2.join('\n');

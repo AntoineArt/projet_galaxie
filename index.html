@@ -13,7 +13,7 @@
       #panel label { display: flex; justify-content: space-between; align-items: center; margin: 4px 0; gap: 8px; }
       #panel input[type=range] { width: 130px; }
       #panel .v { min-width: 60px; text-align: right; color: #9fb3d9; }
-      #star { position: fixed; bottom: 10px; right: 10px; font-size: 12px; background: rgba(8,10,16,0.75); border: 1px solid #2a3244; padding: 8px 10px; width: 260px; white-space: pre; display: none; }
+      #star { position: fixed; bottom: 10px; right: 10px; font-size: 12px; background: rgba(8,10,16,0.75); border: 1px solid #2a3244; padding: 8px 10px; width: 300px; max-height: 42vh; overflow: auto; white-space: pre; display: none; }
       #sel { position: fixed; bottom: 10px; right: 10px; font-size: 12px; background: rgba(8,10,16,0.8); border: 1px solid #5a4a2a; padding: 8px 10px; width: 300px; max-height: 70vh; overflow: auto; display: none; }
       #sel .title { color: #ffd27a; margin-bottom: 4px; }
       #sel button { margin: 6px 6px 0 0; background: #1c2230; color: #cfd6e6; border: 1px solid #3a4560; padding: 3px 10px; font: inherit; cursor: pointer; }
@@ -34,7 +34,7 @@
     <div id="loading">Génération de la galaxie…</div>
     <div id="hud"></div>
     <div id="help">ZQSD/WASD : vol libre   glisser : regarder   clic : sélectionner un astre   L : capturer la souris   molette : vitesse   Espace/Maj : haut/bas
-T : pause temps   [ ] : vitesse du temps   R : retour Soleil   G : vue galaxie   H : vue de dessus   V : visiter la sélection   O : orbiter   Échap : annuler   F : viser   J : sauter à l'étoile proche</div>
+T : pause temps   [ ] : vitesse du temps   R : Système solaire   G : vue galaxie   H : vue de dessus   V : visiter la sélection   O : orbiter   Échap : annuler   F : viser   J : sauter à l'étoile proche</div>
     <div id="panel"></div>
     <div id="star"></div>
     <div id="sel"></div>

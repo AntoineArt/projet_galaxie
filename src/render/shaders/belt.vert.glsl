@@ -37,11 +37,11 @@ void main() {
   float d = length(rel);
   vec4 v = uView * vec4(rel, 1.0);
   gl_Position = uProj * v;
-  float sz = clamp(aSize, 1.0, 3.0);
+  float sz = clamp(aSize, 1.0, 2.0);
   gl_PointSize = sz;
   vSize = sz;
   vProfile = 0.0;
   // marqueur : brillance constante, atténuée si le point est très loin par rapport à son rayon orbital
-  vIntensity = 0.5 * clamp(aA * AU_PC * 3.0 / max(d, 1e-9), 0.02, 1.0);
+  vIntensity = 0.22 * clamp(aA * AU_PC * 3.0 / max(d, 1e-9), 0.02, 1.0);
   vColor = vec3(0.75, 0.7, 0.62);
 }
