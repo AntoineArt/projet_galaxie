@@ -138,7 +138,7 @@ export class SelectionManager {
       if (ph === PHASE.PLANETARY_NEBULA || ph === PHASE.SUPERNOVA) return Math.max(this.radius() * 3.5, 40 * AU_PC);
       return compact ? Math.max(this.radius() * 45, 2e-12) : Math.max(40 * AU_PC, this.radius() * 30);
     }
-    if (sel.kind === 'object') return sel.obj.kind === 'trou noir supermassif' ? 0.3 : sel.obj.radius * 2.5;
+    if (sel.kind === 'object') return sel.obj.kind === 'trou noir supermassif' ? 0.3 : sel.obj.kind === 'galaxie' ? sel.obj.radius * 4 : sel.obj.radius * 2.5;
     return Math.max(sel.radius * 14, 2e-9);
   }
 

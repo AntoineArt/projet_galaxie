@@ -63,7 +63,7 @@ export class ExposurePass extends Pass {
   update(dt: number): number {
     if (this.measured > 0) {
       const want = this.logExp + Math.log(this.target / this.measured);
-      const clamped = Math.max(Math.log(0.05), Math.min(Math.log(1e6), want));
+      const clamped = Math.max(Math.log(0.05), Math.min(Math.log(400), want));
       const k = 1 - Math.exp(-dt * 3);
       this.logExp += (clamped - this.logExp) * k;
       this.exposure = Math.exp(this.logExp);

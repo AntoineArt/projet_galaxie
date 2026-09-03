@@ -15,6 +15,7 @@ import { ExposurePass } from './render/exposure';
 import { Probe } from './galaxy/probe';
 import { Objects } from './render/objects';
 import { GlowRenderer } from './render/glow';
+import { Galaxies } from './render/galaxies';
 import { Population } from './galaxy/population';
 import { SystemRenderer } from './render/system';
 import { buildSystem, type StarSystem } from './galaxy/system';
@@ -30,7 +31,7 @@ renderer.info.autoReset = false;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 1e-12, 5e5); // near = 30 km : pas de test de profondeur, seule la coupure compte
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 1e-12, 1e9); // near = 30 km : pas de test de profondeur, seule la coupure compte
 camera.position.set(0, 0, 0);
 
 const composer = new EffectComposer(renderer);
@@ -51,7 +52,9 @@ const glow = new GlowRenderer();
 const far = new FarField(grid, pop);
 const objects = new Objects();
 const systemR = new SystemRenderer();
-scene.add(far.group, glow.mesh, stars.group, objects.group, systemR.group);
+const galaxies = new Galaxies();
+objects.pickables.push(...galaxies.pickables);
+scene.add(galaxies.points, far.group, glow.mesh, stars.group, objects.group, systemR.group);
 document.getElementById('loading')!.remove();
 
 // --- état
@@ -99,7 +102,7 @@ const camPat = new THREE.Vector3();
 const lastCamPat = new THREE.Vector3(1e9, 0, 0);
 const lastQuat = new THREE.Quaternion();
 let tRef = state.time;
-const cullCam = new THREE.PerspectiveCamera(60, 1, 1e-12, 5e5);
+const cullCam = new THREE.PerspectiveCamera(60, 1, 1e-12, 1e9);
 const projView = new THREE.Matrix4();
 const viewRot = new THREE.Matrix4();
 
@@ -213,6 +216,7 @@ function frame(): void {
   far.group.children[1].visible = state.showDust;
 
   objects.update(camera, viewRot, camPat, theta, state.time, state.exposure, pixelScale);
+  galaxies.update(camera, viewRot, camPat, theta, state.exposure, pixelScale);
   const gu = glow.material.uniforms;
   gu.uProj.value.copy(camera.projectionMatrix);
   gu.uView.value.copy(viewRot);

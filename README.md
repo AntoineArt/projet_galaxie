@@ -91,7 +91,11 @@ noir, une étoile à neutrons, une naine blanche, une géante, une nébuleuse pl
 Rémanents de supernova et nébuleuses planétaires : coquilles en expansion rendues dans le shader
 d'étoiles (loi de Sedov, structure par bruit). Noyau actif : phase quasar du trou noir central entre
 0,8 et 2,5 Ga (disque d'accrétion 2×10¹² L☉, jets bipolaires de 8 kpc), réactivations brèves à 6,2 et
-10,4 Ga. Régions HII, nébuleuses par réflexion et [OIII] aux formes irrégulières.
+10,4 Ga. Régions HII, nébuleuses par réflexion et [OIII] aux formes irrégulières. Pulsars (étoiles à
+neutrons : faisceaux tournants à période réelle), comètes (orbites excentriques, queue anti-solaire),
+galaxies d'arrière-plan (`galaxies.ts` : nuages de Magellan, naines sphéroïdales, groupe local, ~600
+galaxies de champ jusqu'à 80 Mpc, sprites procéduraux spirale/elliptique/irrégulière avec bande de
+poussière ; brillance relevée ×10 pour rester visibles face au ciel de la Voie lactée).
 
 ### Physique
 

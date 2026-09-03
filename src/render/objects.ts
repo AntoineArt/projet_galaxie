@@ -17,7 +17,7 @@ function gauss(rng: () => number): number {
 interface Cloud { points: THREE.Points; mat: THREE.RawShaderMaterial }
 
 export interface GlobularInfo { pos: THREE.Vector3; members: number; radius: number }
-export type PickKind = 'amas globulaire' | 'amas ouvert' | 'région HII' | 'nébuleuse par réflexion' | 'nébuleuse OIII' | 'trou noir supermassif';
+export type PickKind = 'amas globulaire' | 'amas ouvert' | 'région HII' | 'nébuleuse par réflexion' | 'nébuleuse OIII' | 'trou noir supermassif' | 'galaxie';
 /** objet sélectionnable : position (réf. motif), rayon (pc) et fiche */
 export interface Pickable { kind: PickKind; pos: THREE.Vector3; radius: number; info: string[] }
 
