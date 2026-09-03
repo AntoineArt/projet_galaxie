@@ -174,6 +174,8 @@ export class SelectionManager {
         out.push(`planètes   ${system.planets.length}  (ligne des glaces ${system.snowLine.toFixed(1)} UA)`);
         system.planets.forEach((p, i) => out.push(`  ${i + 1}. ${p.kind.padEnd(16)} a=${p.a.toFixed(2)} UA  R=${p.radius.toFixed(1)} R⊕  ${p.moons.length ? p.moons.length + ' lune' + (p.moons.length > 1 ? 's' : '') : ''}${p.rings ? ' anneaux' : ''}`));
         for (const b of system.belts) out.push(`  ceinture ${b.kind === 'Kuiper' ? 'de Kuiper' : "d'astéroïdes"}  ${b.inner.toFixed(1)} à ${b.outer.toFixed(1)} UA`);
+        if (system.comets.length) out.push(`  comètes    ${system.comets.length}`);
+        if (n.state.phase === PHASE.NEUTRON_STAR) out.push(`  pulsar     période ${system.pulsarPeriod.toFixed(3)} s`);
       }
       return out;
     }
@@ -183,6 +185,11 @@ export class SelectionManager {
     if (b.kind === 'companion' && system.companion) {
       const C = system.companion;
       out.push(`masse      ${C.mass.toFixed(2)} M☉`, `phase      ${PHASE_NAMES[C.state.phase]}`, `L = ${C.state.L.toExponential(2)} L☉   T = ${C.state.T.toFixed(0)} K`, `orbite     a = ${C.a.toFixed(1)} UA, P = ${C.period.toFixed(1)} a`);
+      return out;
+    }
+    if (b.kind === 'comet') {
+      const cm = system.comets[b.planet];
+      if (cm) out.push(`type       comète`, `périhélie  ${(cm.a * (1 - cm.e)).toFixed(2)} UA, aphélie ${(cm.a * (1 + cm.e)).toFixed(1)} UA`, `orbite     e = ${cm.e.toFixed(2)}, P = ${cm.period.toFixed(1)} a, i = ${(cm.inc * 57.3).toFixed(0)}°`);
       return out;
     }
     const pl = system.planets[b.planet];

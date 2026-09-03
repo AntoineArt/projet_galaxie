@@ -11,19 +11,21 @@ const BODY_FLOATS = 12; // rel xyz, rayon (pc), couleur rgb, intensité, type, l
 const MAX_BODIES = 64;
 const ORBIT_SEG = 96;
 const MAX_ORBITS = 40;
+const MAX_TAIL_V = 4 * 12 * 2;
 
-// types : 0 étoile, 1.x planète/lune (fraction = nature de la surface), 3 trou noir
+// types : 0 étoile, 1.x planète/lune/comète (fraction = nature de la surface), 3 trou noir, 4 pulsar
 const bodyVert = `
 in vec2 position;
 in vec3 aRel; in float aRadius; in vec3 aColor; in float aIntensity; in float aType; in vec3 aLight;
 uniform mat4 uProj; uniform mat4 uView; uniform float uPixelScale;
+uniform float uNow; uniform float uPulsarPeriod;
 out vec2 vUv; out vec3 vColor; out float vIntensity; out float vType; out vec3 vLightView; out float vPx;
 void main() {
   float d = max(length(aRel), 1e-12);
   float px = aRadius / d * uPixelScale;
-  float minPx = aType > 2.5 ? 6.0 : (aType > 0.5 ? 1.5 : 1.0);
+  float minPx = aType > 3.5 ? 2.0 : (aType > 2.5 ? 6.0 : (aType > 0.5 ? 1.5 : 1.0));
   float r = max(aRadius, minPx * d / uPixelScale);
-  float ext = aType > 0.5 ? (aType > 2.5 ? 2.5 : 1.0) : 3.0; // étoile : couronne ; trou noir : halo de lentille
+  float ext = aType > 3.5 ? 14.0 : (aType > 0.5 ? (aType > 2.5 ? 2.5 : 1.0) : 3.0); // étoile : couronne ; trou noir : halo ; pulsar : faisceaux
   vec4 v = uView * vec4(aRel, 1.0);
   v.xy += position * r * ext;
   gl_Position = uProj * v;
@@ -32,7 +34,8 @@ void main() {
   float rPx = max(px, minPx);
   vIntensity = aIntensity / (3.1416 * rPx * rPx);
   if (aType > 0.5 && aType < 2.5) vIntensity = clamp(vIntensity, 0.6, 1.4); // planètes : plancher de visibilité (marqueur), plafond (pas d'éblouissement)
-  if (aType > 2.5) vIntensity = 0.55; // trou noir : anneau de photons à brillance fixe
+  if (aType > 2.5 && aType < 3.5) vIntensity = 0.55; // trou noir : anneau de photons à brillance fixe
+  if (aType > 3.5) vIntensity = 1.0;
   vType = aType;
   vLightView = (uView * vec4(aLight, 0.0)).xyz;
   vPx = rPx;
@@ -40,6 +43,7 @@ void main() {
 const bodyFrag = `
 precision highp float;
 in vec2 vUv; in vec3 vColor; in float vIntensity; in float vType; in vec3 vLightView; in float vPx;
+uniform float uNow; uniform float uPulsarPeriod;
 out vec4 fragColor;
 // bruit de valeur 3D (surfaces procédurales)
 float hash3(vec3 p) { p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3)); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -51,6 +55,17 @@ float vnoise(vec3 x) {
 float fbm(vec3 p) { return 0.5 * vnoise(p) + 0.25 * vnoise(p * 2.03) + 0.125 * vnoise(p * 4.07) + 0.0625 * vnoise(p * 8.11); }
 void main() {
   float r2 = dot(vUv, vUv);
+  if (vType > 3.5) {
+    // pulsar : point bleu-blanc et deux faisceaux opposés qui tournent (période réelle, temps réel)
+    float r = sqrt(r2);
+    if (r > 14.0) discard;
+    float ang = 6.2831853 * uNow / uPulsarPeriod;
+    float phi = atan(vUv.y, vUv.x);
+    float beam = exp(-pow(sin(phi - ang) * 7.0, 2.0)) * exp(-r * 0.35) * 2.0;
+    float core = exp(-r2 * 2.0) * 3.0;
+    fragColor = vec4(vColor * vIntensity * (core + beam) + vec3(0.4, 0.5, 1.0) * beam * 0.5, 1.0);
+    return;
+  }
   if (vType > 2.5) {
     // trou noir : ombre (opaque) entourée d'un anneau de photons et d'un halo de lentille
     float r = sqrt(r2);
@@ -111,6 +126,9 @@ export class SystemRenderer {
   private bhGeo: THREE.InstancedBufferGeometry;
   private orbits: THREE.LineSegments;
   private orbitPos: THREE.BufferAttribute;
+  tailLines: THREE.LineSegments;
+  private tailPos: THREE.BufferAttribute;
+  private tailCol: THREE.BufferAttribute;
   private belts: THREE.Points | null = null;
   private beltMat: THREE.RawShaderMaterial;
   private beltSystemId = '';
@@ -136,7 +154,7 @@ export class SystemRenderer {
       geo.instanceCount = 0;
       const mat = new THREE.RawShaderMaterial({
         glslVersion: THREE.GLSL3, vertexShader: `precision highp float;\n` + bodyVert, fragmentShader: bodyFrag,
-        uniforms: { uProj: { value: new THREE.Matrix4() }, uView: { value: new THREE.Matrix4() }, uPixelScale: { value: 1000 } },
+        uniforms: { uProj: { value: new THREE.Matrix4() }, uView: { value: new THREE.Matrix4() }, uPixelScale: { value: 1000 }, uNow: { value: 0 }, uPulsarPeriod: { value: 1 } },
         blending, depthTest: false, depthWrite: false, transparent: true, side: THREE.DoubleSide,
         premultipliedAlpha: blending === THREE.NormalBlending, // trou noir : ombre opaque + lueur additive
       });
@@ -159,6 +177,17 @@ export class SystemRenderer {
     this.orbits.frustumCulled = false;
     this.orbits.renderOrder = 39;
     this.group.add(this.orbits);
+    const tgeo = new THREE.BufferGeometry();
+    this.tailPos = new THREE.BufferAttribute(new Float32Array(MAX_TAIL_V * 3), 3);
+    this.tailCol = new THREE.BufferAttribute(new Float32Array(MAX_TAIL_V * 3), 3);
+    this.tailPos.setUsage(THREE.DynamicDrawUsage); this.tailCol.setUsage(THREE.DynamicDrawUsage);
+    tgeo.setAttribute('position', this.tailPos);
+    tgeo.setAttribute('color', this.tailCol);
+    tgeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e9);
+    this.tailLines = new THREE.LineSegments(tgeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthTest: false }));
+    this.tailLines.frustumCulled = false;
+    this.tailLines.renderOrder = 39;
+    this.group.add(this.tailLines);
 
     this.beltMat = new THREE.RawShaderMaterial({
       glslVersion: THREE.GLSL3,
@@ -231,6 +260,7 @@ export class SystemRenderer {
     const tYears = time * 1e6;
     if (system.id !== this.beltSystemId || Math.abs(tYears - this.beltT0) > 3e4) { this.buildBelts(system, tYears); this.beltSystemId = system.id; }
     const list = systemBodies(system, tYears, this.posList);
+    const tails: { x: number; y: number; z: number; dx: number; dy: number; dz: number; len: number }[] = [];
     const data = this.bodyBuf.array as Float32Array;
     const bhData = this.bhBuf.array as Float32Array;
     let n = 0, nbh = 0;
@@ -263,7 +293,15 @@ export class SystemRenderer {
         const st = b.kind === 'star' ? P : system.companion!.state;
         color = starColor(st);
         if (st.phase === PHASE.BLACK_HOLE) { type = 3; L = 1; radius = 2.6 * 9.6e-14 * (b.kind === 'star' ? system.mass : system.companion!.mass) * 3; label = 'trou noir'; }
+        else if (st.phase === PHASE.NEUTRON_STAR) { type = 4; L = 1; label = 'pulsar'; }
         else { L = st.L; label = b.kind === 'star' ? 'étoile' : 'compagnon'; }
+      } else if (b.kind === 'comet') {
+        type = 1.02; color = [0.8, 0.85, 0.9]; label = `comète ${b.planet + 1}`;
+        const dist = Math.sqrt(b.x * b.x + b.y * b.y + b.z * b.z);
+        L = P.L * 0.3 * Math.pow(radius / (2 * dist * AU_PC), 2);
+        // queue : s'éloigne de l'étoile, longueur ~ 0,5 UA * (2 UA / r)^2, plafonnée
+        const len = 0.5 * Math.min(6, Math.pow(2 / Math.max(dist, 0.1), 2));
+        if (len > 0.05) tails.push({ x: rx, y: ry, z: rz, dx: b.x / dist, dy: b.y / dist, dz: b.z / dist, len: len * AU_PC });
       } else {
         const pl = system.planets[b.planet];
         const src = b.kind === 'moon' ? pl.moons[b.moon] : pl;
@@ -300,12 +338,30 @@ export class SystemRenderer {
         for (const m of pl.moons) drawOrbit(m.a, 0.01, m.period, m.phase0, pl.inc + m.inc, pl.node, cx, cy, cz);
       });
     }
+    // queues de comètes : segments dégradés dans la direction anti-stellaire
+    const tp = this.tailPos.array as Float32Array, tc = this.tailCol.array as Float32Array;
+    let tv = 0;
+    for (const t of tails) {
+      for (let k = 0; k < 12 && tv / 3 + 2 <= MAX_TAIL_V; k++) {
+        const f0 = k / 12, f1 = (k + 1) / 12;
+        tp[tv] = t.x + t.dx * t.len * f0; tp[tv + 1] = t.y + t.dy * t.len * f0; tp[tv + 2] = t.z + t.dz * t.len * f0;
+        tp[tv + 3] = t.x + t.dx * t.len * f1; tp[tv + 4] = t.y + t.dy * t.len * f1; tp[tv + 5] = t.z + t.dz * t.len * f1;
+        const b0 = (1 - f0) * 0.8, b1 = (1 - f1) * 0.8;
+        tc[tv] = 0.7 * b0; tc[tv + 1] = 0.85 * b0; tc[tv + 2] = b0; tc[tv + 3] = 0.7 * b1; tc[tv + 4] = 0.85 * b1; tc[tv + 5] = b1;
+        tv += 6;
+      }
+    }
+    this.tailPos.needsUpdate = true; this.tailCol.needsUpdate = true;
+    (this.tailLines.geometry as THREE.BufferGeometry).setDrawRange(0, tv / 3);
+    this.tailLines.visible = tv > 0;
     this.bodyGeo.instanceCount = n; this.bodyBuf.needsUpdate = true;
     this.bhGeo.instanceCount = nbh; this.bhBuf.needsUpdate = true;
     this.orbitPos.needsUpdate = true;
     (this.orbits.geometry as THREE.BufferGeometry).setDrawRange(0, ov / 3);
     this.orbits.visible = showOrbits && ov > 0;
     for (const u of [this.bodyMat.uniforms, this.bhMat.uniforms]) {
+      u.uNow.value = performance.now() / 1000;
+      u.uPulsarPeriod.value = system.pulsarPeriod;
       u.uProj.value.copy(camera.projectionMatrix);
       u.uView.value.copy(viewRot);
       u.uPixelScale.value = pixelScale;

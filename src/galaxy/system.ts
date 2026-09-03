@@ -41,6 +41,11 @@ export interface Belt {
   seed: number;
 }
 
+export interface Comet {
+  a: number; e: number; period: number; phase0: number; inc: number; node: number;
+  radius: number; // rayons terrestres (noyau, agrandi pour la visibilité)
+}
+
 export interface Companion {
   mass: number;
   a: number; // UA
@@ -58,9 +63,11 @@ export interface StarSystem {
   companion: Companion | null;
   planets: Planet[];
   belts: Belt[];
+  comets: Comet[];
   snowLine: number; // UA
   inc0: number; // plan du système
   node0: number;
+  pulsarPeriod: number; // s, si la primaire est une étoile à neutrons
 }
 
 function hashu(x: number): number {
@@ -140,7 +147,16 @@ export function buildSystem(id: string, seed: number, mass: number, age: number)
     const aLast = planets[planets.length - 1].a;
     belts.push({ inner: aLast * 1.6, outer: aLast * 3.2, kind: 'Kuiper', n: 4000, thickness: 0.15, seed: hashu(seed + 991) });
   }
-  return { id, mass, age, primary, companion, planets, belts, snowLine, inc0, node0 };
+  // comètes : orbites très excentriques, périhélie entre 0,3 et 3 UA, inclinaisons quelconques
+  const comets: Comet[] = [];
+  const nComets = planets.length > 0 ? Math.floor(rnd() * 3.5) : 0;
+  for (let i = 0; i < nComets; i++) {
+    const qp = 0.3 + 2.7 * rnd(), e = 0.6 + 0.37 * rnd();
+    const ac = qp / (1 - e);
+    comets.push({ a: ac, e, period: Math.sqrt((ac * ac * ac) / Math.max(mass, 0.05)), phase0: rnd() * 2 * Math.PI, inc: inc0 + (rnd() - 0.5) * 1.2, node: rnd() * 2 * Math.PI, radius: 0.002 });
+  }
+  const pulsarPeriod = 0.03 + 1.2 * Math.pow(rnd(), 2);
+  return { id, mass, age, primary, companion, planets, belts, comets, snowLine, inc0, node0, pulsarPeriod };
 }
 
 /** position (UA, repère du système : plan de référence xy) d'un corps en orbite à l'instant t (années) */
@@ -157,8 +173,8 @@ export function orbitPosition(a: number, e: number, period: number, phase0: numb
 }
 
 export interface BodyPos {
-  kind: 'star' | 'companion' | 'planet' | 'moon';
-  planet: number; // index de la planète (planète ou lune)
+  kind: 'star' | 'companion' | 'planet' | 'moon' | 'comet';
+  planet: number; // index de la planète (planète ou lune), ou de la comète
   moon: number; // index de la lune, -1 sinon
   x: number; y: number; z: number; // UA, repère du système
   radius: number; // pc
@@ -182,6 +198,10 @@ export function systemBodies(sys: StarSystem, tYears: number, out: BodyPos[] = [
       orbitPosition(m.a, 0.01, m.period, m.phase0, pl.inc + m.inc, pl.node, tYears, tmp);
       out.push({ kind: 'moon', planet: i, moon: k, x: px + tmp[0], y: py + tmp[1], z: pz + tmp[2], radius: m.radius * REARTH_RSUN * RSUN_PC });
     });
+  });
+  sys.comets.forEach((c, i) => {
+    orbitPosition(c.a, c.e, c.period, c.phase0, c.inc, c.node, tYears, tmp);
+    out.push({ kind: 'comet', planet: i, moon: -1, x: tmp[0], y: tmp[1], z: tmp[2], radius: c.radius * REARTH_RSUN * RSUN_PC });
   });
   return out;
 }

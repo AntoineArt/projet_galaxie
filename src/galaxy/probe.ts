@@ -93,6 +93,36 @@ export class Probe {
     }
   }
 
+  /** état d'une étoile identifiée par (noeud contenant pos, tranche, index) : O(1), sans énumération */
+  starById(pos: THREE.Vector3, bin: number, j: number, time: number): StarHit | null {
+    const ix = Math.floor((pos.x + P.ROOT_HALF) / SIZE), iy = Math.floor((pos.y + P.ROOT_HALF) / SIZE), iz = Math.floor((pos.z + P.ROOT_HALF) / SIZE);
+    const info = this.lod.nodeInfo(LEVEL, ix, iy, iz);
+    if (info.total < 0.5) return null;
+    const size = SIZE;
+    const seed = (((LEVEL * 73856093) ^ (ix * 19349663) ^ (iy * 83492791) ^ (iz * 2971215073)) >>> 8) >>> 0;
+    const ox = -P.ROOT_HALF + ix * size, oy = -P.ROOT_HALF + iy * size, oz = -P.ROOT_HALF + iz * size;
+    const cx = ox + size / 2, cy = oy + size / 2;
+    const Rc = Math.sqrt(cx * cx + cy * cy);
+    const diskFrac = (info.n[1] + info.n[2]) / info.total;
+    const wrel = (P.omega(Rc) - P.PATTERN_OMEGA) * diskFrac;
+    const ax = (-wrel * cy) / size, ay = (wrel * cx) / size;
+    const phx = fract(ax * time), phy = fract(ay * time);
+    binCounts(info.n[0], info.n[1], info.n[2], info.n[3], youngFraction(info.armMax, time), this.binN);
+    const N = this.binN[bin];
+    if (N <= 0 || j >= Math.floor(N + 0.5)) return null;
+    const dispScale = (bin >= 3 ? 30 : 120) / size;
+    const i = (j + Math.imul(bin, 0x01000193)) >>> 0;
+    const base = hashu(seed ^ (Math.imul(i, 0x9e3779b9) >>> 0));
+    const r0 = rnd(hashu(base + 1)), r2 = rnd(hashu(base + 3));
+    const r3 = rnd(hashu(base + 4)), r4 = rnd(hashu(base + 5));
+    const r6 = rnd(hashu(base + 7)), r8 = rnd(hashu(base + 9)), r9 = rnd(hashu(base + 10));
+    const ux = warp1(fract(r2 + phx + (r8 - 0.5) * dispScale * time), info.grad[0]);
+    const uy = warp1(fract(r3 + phy + (r9 - 0.5) * dispScale * time), info.grad[1]);
+    const uz = warp1(r4, info.grad[2]);
+    const q = binMassQuantile(bin, 1 - (j + r0) / N);
+    return { px: ox + ux * size, py: oy + uy * size, pz: oz + uz * size, m: imfInv(Math.min(Math.max(q, 1e-7), 1 - 1e-7)), tb: birthInBin(bin, time, r6 * 0.9999), bin, j, seed };
+  }
+
   private makeStar(h: StarHit, time: number, dist: number): NearStar {
     const st = stellarState(h.m, time - h.tb, this.tmpState);
     return { dist, mass: h.m, age: time - h.tb, birth: h.tb, comp: binComponent(h.bin), state: { ...st }, pos: new THREE.Vector3(h.px, h.py, h.pz), index: h.j, seed: h.seed, bin: h.bin, id: `${h.seed}-${h.bin}-${h.j}` };
@@ -114,16 +144,14 @@ export class Probe {
       if (d2 < best) { best = d2; bestHit = { ...h }; }
     });
     if (bestHit) this.nearest = this.makeStar(bestHit, time, Math.sqrt(best));
-    if (this.selected) this.refreshSelected(camPat, time);
   }
 
-  /** la sélection suit son étoile (position et état évoluent avec le temps) */
-  private refreshSelected(camPat: THREE.Vector3, time: number): void {
-    const s = this.selected!;
-    const ix = Math.floor((s.pos.x + P.ROOT_HALF) / SIZE), iy = Math.floor((s.pos.y + P.ROOT_HALF) / SIZE), iz = Math.floor((s.pos.z + P.ROOT_HALF) / SIZE);
-    let found: StarHit | null = null;
-    this.enumerate(ix, iy, iz, time, 0, true, 1e9, (h) => { if (h.bin === s.bin && h.j === s.index) { found = { ...h }; return true; } return false; });
-    if (found) this.selected = this.makeStar(found, time, new THREE.Vector3((found as StarHit).px, (found as StarHit).py, (found as StarHit).pz).distanceTo(camPat));
+  /** la sélection suit son étoile (position et état évoluent avec le temps) ; O(1), appelable chaque frame */
+  refreshSelected(camPat: THREE.Vector3, time: number): void {
+    const s = this.selected;
+    if (!s) return;
+    const h = this.starById(s.pos, s.bin, s.index, time);
+    if (h) this.selected = this.makeStar(h, time, Math.hypot(h.px - camPat.x, h.py - camPat.y, h.pz - camPat.z));
   }
 
   /**

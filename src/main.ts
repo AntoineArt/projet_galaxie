@@ -68,7 +68,7 @@ const state = {
   showOrbits: true,
 };
 let system: StarSystem | null = null;
-(window as unknown as { galaxy: unknown }).galaxy = { state, lod, lodLocal, stars, far, objects, glow, probe: null as unknown, systemR: null as unknown, camera, THREE, P, controls: null as unknown };
+(window as unknown as { galaxy: unknown }).galaxy = { state, lod, lodLocal, stars, far, objects, glow, probe: null as unknown, systemR: null as unknown, selection: null as unknown, camera, THREE, P, controls: null as unknown };
 const controls = new FlyControls(renderer.domElement);
 (window as unknown as { galaxy: { controls: unknown } }).galaxy.controls = controls;
 // vue initiale : extérieur de la galaxie (R pour rejoindre le Soleil)
@@ -77,6 +77,7 @@ controls.lookAt(new THREE.Vector3(0, 0, 0));
 controls.speed = 3000;
 const probe = new Probe(lodLocal);
 const selection = new SelectionManager(probe, objects, systemR);
+(window as unknown as { galaxy: { selection: unknown } }).galaxy.selection = selection;
 const hud = new Hud(state, lod, controls, selection);
 let thetaNow = 0;
 const selPos = new THREE.Vector3();
@@ -226,6 +227,7 @@ function frame(): void {
   renderer.info.reset();
   composer.render();
   probe.update(camPat, state.time, now);
+  probe.refreshSelected(camPat, state.time); // suivi exact chaque frame (dérive, évolution)
   if (hud.pickRequested) {
     hud.pickRequested = false;
     selection.pick(innerWidth / 2, innerHeight / 2, camera, controls.position, camPat, theta, state.time, lod.fluxMin);
