@@ -3,7 +3,7 @@ import * as P from '../galaxy/params';
 import type { LodStats } from '../galaxy/lod';
 import type { FlyControls } from '../controls';
 import type { Probe } from '../galaxy/probe';
-import { PHASE_NAMES } from '../galaxy/stellar';
+import { PHASE, PHASE_NAMES } from '../galaxy/stellar';
 import type { StarSystem } from '../galaxy/system';
 import type { SelectionManager } from './selection';
 
@@ -62,6 +62,8 @@ export class Hud {
   /** demandes d'action émises par les boutons, consommées par la boucle principale */
   visitRequested = false;
   orbitRequested = false;
+  /** recherche demandée : prédicat sur l'état stellaire */
+  findRequested: ((st: { phase: number; L: number }, mass: number) => boolean) | null = null;
 
   constructor(private state: AppState, private lod: { stats: LodStats; glow: { count: number } }, private controls: FlyControls, private selection: SelectionManager) {
     this.buildPanel();
@@ -72,6 +74,18 @@ export class Hud {
     mkBtn('Orbiter', () => { this.orbitRequested = true; });
     mkBtn('×', () => { this.selection.clear(); this.controls.stopOrbit(); });
     this.selEl.append(this.selTitle, this.selBody, this.selBtns);
+    // recherche d'astres remarquables autour de la caméra (noeud courant + voisins, ~1 pc³ à 200 pc³)
+    const find = document.getElementById('find')!;
+    const mkFind = (label: string, pred: (st: { phase: number; L: number }, mass: number) => boolean) => { const b = document.createElement('button'); b.textContent = label; b.onclick = () => { this.findRequested = pred; }; find.append(b); };
+    const t = document.createElement('div'); t.textContent = 'trouver près d\'ici :'; t.style.marginBottom = '2px'; find.append(t);
+    mkFind('trou noir', (st) => st.phase === PHASE.BLACK_HOLE);
+    mkFind('étoile à neutrons', (st) => st.phase === PHASE.NEUTRON_STAR);
+    mkFind('naine blanche', (st) => st.phase === PHASE.WHITE_DWARF);
+    mkFind('géante', (st) => st.phase === PHASE.GIANT || st.phase === PHASE.SUPERGIANT);
+    mkFind('néb. planétaire', (st) => st.phase === PHASE.PLANETARY_NEBULA);
+    mkFind('supernova', (st) => st.phase === PHASE.SUPERNOVA);
+    mkFind('naine brune', (st) => st.phase === PHASE.BROWN_DWARF);
+    mkFind('étoile massive', (st, m) => m > 8 && st.phase <= PHASE.SUPERGIANT && st.phase >= PHASE.MAIN_SEQUENCE);
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
       this.pressed.add(e.code);
@@ -149,6 +163,14 @@ export class Hud {
     p.clear();
   }
 
+  private noticeEl = document.getElementById('notice')!;
+  private noticeUntil = 0;
+  notice(text: string): void {
+    this.noticeEl.textContent = text;
+    this.noticeEl.style.display = text ? 'block' : 'none';
+    this.noticeUntil = performance.now() + 3000;
+  }
+
   /** anneau autour de l'astre sélectionné (position monde) */
   updateMarker(pos: THREE.Vector3 | null, camera: THREE.PerspectiveCamera, camWorld: THREE.Vector3): void {
     if (!pos) { this.marker.style.display = 'none'; return; }
@@ -165,6 +187,7 @@ export class Hud {
   update(s: AppState, camPat: THREE.Vector3, probe: Probe, info: THREE.WebGLRenderer['info'], system: StarSystem | null): void {
     this.frames++;
     const now = performance.now();
+    if (this.noticeUntil && now > this.noticeUntil) { this.noticeEl.style.display = 'none'; this.noticeUntil = 0; }
     if (now - this.lastT > 500) { this.fps = (this.frames * 1000) / (now - this.lastT); this.frames = 0; this.lastT = now; for (const r of this.refreshers) r(); }
     const focus = probe.selected ?? probe.nearest;
     if (this.lookTarget && focus) {

@@ -231,6 +231,12 @@ function frame(): void {
     selection.pick(innerWidth / 2, innerHeight / 2, camera, controls.position, camPat, theta, state.time, lod.fluxMin);
     controls.stopOrbit();
   }
+  if (hud.findRequested) {
+    const pred = hud.findRequested; hud.findRequested = null;
+    const found = probe.findNearest(camPat, state.time, pred);
+    if (found) { selection.current = { kind: 'star', star: found }; controls.stopOrbit(); }
+    hud.notice(found ? '' : 'rien de tel dans les 27 noeuds autour de la caméra (~200 pc)');
+  }
   // position monde de la sélection (suivie chaque frame : les astres bougent avec le temps)
   selPosValid = selection.worldPos(controls.position, theta, selPos) !== null;
   if (selection.current && !selPosValid) { selection.clear(); controls.stopOrbit(); }

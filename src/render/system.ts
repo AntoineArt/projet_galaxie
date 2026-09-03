@@ -32,6 +32,7 @@ void main() {
   float rPx = max(px, minPx);
   vIntensity = aIntensity / (3.1416 * rPx * rPx);
   if (aType > 0.5 && aType < 2.5) vIntensity = clamp(vIntensity, 0.6, 1.4); // planètes : plancher de visibilité (marqueur), plafond (pas d'éblouissement)
+  if (aType > 2.5) vIntensity = 0.55; // trou noir : anneau de photons à brillance fixe
   vType = aType;
   vLightView = (uView * vec4(aLight, 0.0)).xyz;
   vPx = rPx;
@@ -55,8 +56,8 @@ void main() {
     float r = sqrt(r2);
     if (r > 2.5) discard;
     float shadow = 1.0 - smoothstep(0.96, 1.0, r);
-    float ring = exp(-pow((r - 1.08) / 0.05, 2.0)) * 6.0 + exp(-pow((r - 1.25) / 0.25, 2.0)) * 0.8;
-    float halo = r > 1.0 ? 0.12 * exp(-(r - 1.0) * 2.0) : 0.0;
+    float ring = exp(-pow((r - 1.08) / 0.05, 2.0)) * 2.5 + exp(-pow((r - 1.3) / 0.3, 2.0)) * 0.5;
+    float halo = r > 1.0 ? 0.06 * exp(-(r - 1.0) * 2.0) : 0.0;
     vec3 glow = vColor * (ring + halo) * vIntensity;
     fragColor = vec4(glow, max(shadow, 0.0));
     return;

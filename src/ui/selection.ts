@@ -115,14 +115,24 @@ export class SelectionManager {
   radius(): number {
     const sel = this.current;
     if (!sel) return 0;
-    if (sel.kind === 'star') return Math.max(this.probe.selected?.state.radius ?? 1, 0.01) * 2.25e-8;
+    if (sel.kind === 'star') {
+      const st = this.probe.selected;
+      if (!st) return 1e-8;
+      // trou noir : rayon de l'ombre (2,6 r_s), agrandi ×3 comme dans le rendu
+      if (st.state.phase === PHASE.BLACK_HOLE) return 3 * 2.6 * 9.6e-14 * st.mass;
+      return Math.max(st.state.radius, 1e-3) * 2.25e-8;
+    }
     if (sel.kind === 'object') return sel.obj.radius;
     return sel.radius;
   }
   visitDistance(): number {
     const sel = this.current;
     if (!sel) return 1;
-    if (sel.kind === 'star') return Math.max(40 * AU_PC, this.radius() * 30);
+    if (sel.kind === 'star') {
+      const ph = this.probe.selected?.state.phase;
+      const compact = ph === PHASE.WHITE_DWARF || ph === PHASE.NEUTRON_STAR || ph === PHASE.BLACK_HOLE;
+      return compact ? Math.max(this.radius() * 45, 2e-12) : Math.max(40 * AU_PC, this.radius() * 30);
+    }
     if (sel.kind === 'object') return sel.obj.kind === 'trou noir supermassif' ? 0.3 : sel.obj.radius * 2.5;
     return Math.max(sel.radius * 14, 2e-9);
   }
