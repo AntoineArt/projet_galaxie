@@ -1,7 +1,7 @@
 // Côté principal : demande les reconstructions au worker et conserve le dernier résultat (même forme que LodBuilder
 // pour les renderers : buckets, glow, stats, fluxMin, qTO, vis.data).
 import * as THREE from 'three';
-import type { BuildRequest, BuildResult } from './lod.worker';
+import type { BuildRequest, BuildResult, ProbeRequest, ProbeResult } from './lod.worker';
 import { NUM_BUCKETS, type LodStats } from './lod';
 import { NBINS } from './bins';
 import { VIS_NL } from './visq';
@@ -9,7 +9,9 @@ import { VIS_NL } from './visq';
 export class LodClient {
   buckets: { count: number; data: Float32Array<ArrayBufferLike> }[] = [];
   glow: { count: number; data: Float32Array<ArrayBufferLike> } = { count: 0, data: new Float32Array(0) };
-  stats: LodStats = { nodes: 0, stars: 0, fluxMin: 0, iterations: 0, ms: 0, converged: false, nearest: 1e9 };
+  stats: LodStats = { nodes: 0, stars: 0, fluxMin: 0, iterations: 0, ms: 0, converged: false, nearest: 1e9, outgoing: 0 };
+  /** instant (ms) de réception du dernier résultat */
+  resultAt = 0;
   fluxMin = 1e-6;
   qTO: Float32Array<ArrayBufferLike> = new Float32Array(NBINS);
   vis: { data: Float32Array<ArrayBufferLike> } = { data: new Float32Array(NBINS * VIS_NL) };
@@ -19,6 +21,7 @@ export class LodClient {
   anchor = new THREE.Vector3();
   tRef = 0;
   onResult: ((r: BuildResult) => void) | null = null;
+  onProbeResult: ((r: ProbeResult) => void) | null = null;
   private worker: Worker;
   private busy = false;
   private pending: BuildRequest | null = null;
@@ -30,9 +33,10 @@ export class LodClient {
     this.worker = new Worker(new URL('./lod.worker.ts', import.meta.url), { type: 'module' });
     let resolveReady: () => void = () => {};
     this.readyPromise = new Promise((r) => { resolveReady = r; });
-    this.worker.onmessage = (e: MessageEvent<BuildResult | { type: 'ready' }>) => {
+    this.worker.onmessage = (e: MessageEvent<BuildResult | ProbeResult | { type: 'ready' }>) => {
       const m = e.data;
       if (m.type === 'ready') { this.ready = true; resolveReady(); return; }
+      if (m.type === 'probe') { this.onProbeResult?.(m); return; }
       this.buckets = m.buckets;
       this.glow = m.glow;
       this.stats = m.stats;
@@ -42,6 +46,7 @@ export class LodClient {
       this.anchor.fromArray(m.anchor);
       this.tRef = m.tRef;
       this.busy = false;
+      this.resultAt = performance.now();
       this.onResult?.(m);
       if (this.pending) { const p = this.pending; this.pending = null; this.send(p); }
     };
@@ -61,6 +66,8 @@ export class LodClient {
     if (this.busy) { this.pending = req; return; }
     this.send(req);
   }
+
+  postProbe(req: ProbeRequest): void { this.worker.postMessage(req); }
 
   private send(req: BuildRequest): void {
     this.busy = true;

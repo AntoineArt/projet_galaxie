@@ -27,12 +27,12 @@ void main() {
   vec3 trans = dustTransmission(uCamPat, p);
   float b = aL / d2 * uExposure * trans.g;
   vec4 v = uView * vec4(rel, 1.0);
-  v.xy += position * (3.0 * aSigma);
+  v.xy += position * (2.4 * aSigma);
   gl_Position = uProj * v;
-  vUv = position * 3.0;
+  vUv = position * 2.4;
   float sigPx = aSigma / d * uPixelScale;
   vI0 = b / (6.2831853 * sigPx * sigPx);
   // lueur trop diluée pour être visible (caméra dans ou près du noeud) : on évite le remplissage plein écran
-  if (vI0 < 3e-4) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vI0 = 0.0; }
+  if (vI0 < 8e-4) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vI0 = 0.0; }
   vColor = aColor * trans / max(trans.g, 1e-4);
 }

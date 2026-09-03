@@ -1,6 +1,7 @@
 // Sélection d'un astre à la souris : étoiles (sonde), corps du système courant, objets (amas, nébuleuses, Sgr A*).
 import * as THREE from 'three';
-import type { Probe, NearStar } from '../galaxy/probe';
+import type { NearStar } from '../galaxy/probe';
+import type { ProbeClient } from '../galaxy/probeclient';
 import type { Objects, Pickable } from '../render/objects';
 import type { SystemRenderer } from '../render/system';
 import type { BodyPos, StarSystem } from '../galaxy/system';
@@ -33,7 +34,7 @@ export class SelectionManager {
   private tmp = new THREE.Vector3();
   private dir = new THREE.Vector3();
 
-  constructor(private probe: Probe, private objects: Objects, private systemR: SystemRenderer) {}
+  constructor(private probe: ProbeClient, private objects: Objects, private systemR: SystemRenderer) {}
 
   /** rayon de sélection : coordonnées écran -> direction monde */
   private rayWorld(x: number, y: number, camera: THREE.PerspectiveCamera, out: THREE.Vector3): THREE.Vector3 {
@@ -42,8 +43,8 @@ export class SelectionManager {
     return out.set(nx * t * camera.aspect, ny * t, -1).normalize().applyQuaternion(camera.quaternion);
   }
 
-  pick(x: number, y: number, camera: THREE.PerspectiveCamera, camWorld: THREE.Vector3, camPat: THREE.Vector3, theta: number, time: number, fluxMin: number): Selection | null {
-    const dir = this.rayWorld(x, y, camera, this.dir);
+  async pick(x: number, y: number, camera: THREE.PerspectiveCamera, camWorld: THREE.Vector3, camPat: THREE.Vector3, theta: number, time: number, fluxMin: number): Promise<Selection | null> {
+    const dir = this.rayWorld(x, y, camera, this.dir).clone();
     let best: Selection | null = null, bestScore = 0.025; // ~1,4°
     const c = Math.cos(theta), s = Math.sin(theta);
     // objets étendus : score = angle au-delà du rayon apparent
@@ -72,8 +73,8 @@ export class SelectionManager {
     }
     // étoiles : direction dans le référentiel du motif
     const cm = Math.cos(-theta), sm = Math.sin(-theta);
-    const dirPat = this.tmp.set(cm * dir.x - sm * dir.y, sm * dir.x + cm * dir.y, dir.z);
-    const star = this.probe.pick(camPat, dirPat, time, fluxMin);
+    const dirPat = new THREE.Vector3(cm * dir.x - sm * dir.y, sm * dir.x + cm * dir.y, dir.z);
+    const star = await this.probe.pick(camPat, dirPat, time, fluxMin);
     if (star) {
       const q = star.pos;
       const rx = c * q.x - s * q.y - camWorld.x, ry = s * q.x + c * q.y - camWorld.y, rz = q.z - camWorld.z;
@@ -119,7 +120,7 @@ export class SelectionManager {
       const st = this.probe.selected;
       if (!st) return 1e-8;
       // trou noir : rayon de l'ombre (2,6 r_s), agrandi ×3 comme dans le rendu
-      if (st.state.phase === PHASE.BLACK_HOLE) return 3 * 2.6 * 9.6e-14 * st.mass;
+      if (st.state.phase === PHASE.BLACK_HOLE) return 3 * 9.6e-14 * st.mass; // r_s (x3 comme dans le rendu)
       // coquilles en expansion (mêmes lois que star.vert.glsl)
       const tms = tMS(st.mass);
       if (st.state.phase === PHASE.PLANETARY_NEBULA) return 0.05 + 0.5 * ((st.age - tms * 1.15) / 0.03);
@@ -136,6 +137,7 @@ export class SelectionManager {
       const ph = this.probe.selected?.state.phase;
       const compact = ph === PHASE.WHITE_DWARF || ph === PHASE.NEUTRON_STAR || ph === PHASE.BLACK_HOLE;
       if (ph === PHASE.PLANETARY_NEBULA || ph === PHASE.SUPERNOVA) return Math.max(this.radius() * 3.5, 40 * AU_PC);
+      if (ph === PHASE.BLACK_HOLE) return Math.max(this.radius() * 40, 2e-12);
       return compact ? Math.max(this.radius() * 45, 2e-12) : Math.max(40 * AU_PC, this.radius() * 30);
     }
     if (sel.kind === 'object') return sel.obj.kind === 'trou noir supermassif' ? 0.3 : sel.obj.kind === 'galaxie' ? sel.obj.radius * 4 : sel.obj.radius * 2.5;

@@ -130,8 +130,8 @@ export class Probe {
 
   /** étoile la plus proche de la caméra (noeud feuille courant), toutes les 250 ms */
   update(camPat: THREE.Vector3, time: number, now: number): void {
-    if (now - this.lastRun < 250) return;
-    this.lastRun = now;
+    if (now < 1e12 && now - this.lastRun < 250) return;
+    this.lastRun = now < 1e12 ? now : this.lastRun;
     const ix = Math.floor((camPat.x + P.ROOT_HALF) / SIZE), iy = Math.floor((camPat.y + P.ROOT_HALF) / SIZE), iz = Math.floor((camPat.z + P.ROOT_HALF) / SIZE);
     this.nodeStars = this.lod.nodeInfo(LEVEL, ix, iy, iz).total;
     this.nearest = null; this.within10pc = 0;

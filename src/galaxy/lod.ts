@@ -8,7 +8,9 @@ import { NBINS, binCounts, computeQTO, nodeK, youngFraction } from './bins';
 import { VisTable, visIndex } from './visq';
 import { Population } from './population';
 
-export const NUM_BUCKETS = 18; // K max = 2^17 par noeud
+export const NUM_BUCKETS = 35; // tailles de bucket en racine de 2 : K max = 2^17 par noeud, gaspillage moyen ~12 %
+export const bucketSize = (b: number): number => Math.ceil(Math.pow(2, b / 2));
+export const bucketFor = (K: number): number => Math.min(NUM_BUCKETS - 1, Math.max(0, Math.ceil(2 * Math.log2(K) - 1e-9)));
 export const FLOATS_PER_INSTANCE = 20;
 export const GLOW_FLOATS = 8; // x, y, z, sigma, L, r, g, b
 /** un noeud à moins de GLOW_FAR fois sa taille rend sa lumière non résolue en lueur ; fondu entre GLOW_NEAR et GLOW_FAR */
@@ -24,11 +26,11 @@ export function nearScale(d: number): number {
   return Math.max(NEAR_MIN, Math.min(1, x * x));
 }
 /** durée du fondu croisé entre deux reconstructions (s) */
-export const FADE_S = 0.6;
+export const FADE_S = 0.8;
 
 interface NodeInfo { n: Float32Array; arm: number; armMax: number; grad: Float32Array; total: number }
 
-export interface LodStats { nodes: number; stars: number; fluxMin: number; iterations: number; ms: number; converged: boolean; nearest: number }
+export interface LodStats { nodes: number; stars: number; fluxMin: number; iterations: number; ms: number; converged: boolean; nearest: number; outgoing: number }
 
 const TH = 0.75; // seuil de subdivision : taille/distance
 
@@ -48,7 +50,8 @@ export class LodBuilder {
   private binN = new Float64Array(NBINS);
   private visIdx = 0;
   private qVisFn = (c: number) => this.vis.qVis(c, this.visIdx);
-  stats: LodStats = { nodes: 0, stars: 0, fluxMin: 0, iterations: 0, ms: 0, converged: false, nearest: 1e9 };
+  stats: LodStats = { nodes: 0, stars: 0, fluxMin: 0, iterations: 0, ms: 0, converged: false, nearest: 1e9, outgoing: 0 };
+  private outgoingCount = 0;
   private nearestD = 1e9;
   private frustum = new THREE.Frustum();
   private tmpV = new THREE.Vector3();
@@ -141,7 +144,8 @@ export class LodBuilder {
       const r = this.traverse(camPat, theta, anchor, tRef);
       stars = r.stars; nodes = r.nodes; iter++;
       const ratio = stars / this.budget;
-      const needAdjust = ratio > 1.15 || (ratio < 0.6 && this.fluxMin > 1e-9);
+      // hystérésis large : le seuil (donc l'ensemble des étoiles faibles) ne bouge pas à chaque reconstruction
+      const needAdjust = ratio > 1.3 || (ratio < 0.5 && this.fluxMin > 1e-9);
       if (!needAdjust) { this.fluxMinNext = this.fluxMin; break; }
       if (ratio > 1) fLo = Math.max(fLo, this.fluxMin); else fHi = fHi < 0 ? this.fluxMin : Math.min(fHi, this.fluxMin);
       let next: number;
@@ -160,7 +164,7 @@ export class LodBuilder {
       this.fluxMin = next;
     }
     this.crossfade(anchor, tRef, now);
-    this.stats = { nodes, stars, fluxMin: this.fluxMin, iterations: iter, ms: performance.now() - t0, converged: this.fluxMinNext === this.fluxMin, nearest: this.nearestD };
+    this.stats = { nodes, stars, fluxMin: this.fluxMin, iterations: iter, ms: performance.now() - t0, converged: this.fluxMinNext === this.fluxMin, nearest: this.nearestD, outgoing: this.outgoingCount };
     return this.stats;
   }
 
@@ -189,9 +193,13 @@ export class LodBuilder {
     }
     for (const [key, old] of this.prev) if (!next.has(key)) outgoing.push({ inst: old.inst, bucket: old.bucket });
     this.prev = next;
-    // noeuds sortants : réancrés, phases de dérive recalculées pour le nouveau tRef, plafonnés à la moitié du budget
+    // noeuds sortants : les plus proches d'abord (les seuls dont la disparition se verrait), réancrés,
+    // phases de dérive recalculées pour le nouveau tRef, plafonnés à 80 % du budget
+    const dist2 = (i: Float32Array) => { const h = i[3] * 0.5; const dx = i[0] + h - anchor.x, dy = i[1] + h - anchor.y, dz = i[2] + h - anchor.z; return dx * dx + dy * dy + dz * dz; };
+    outgoing.sort((a, b) => dist2(a.inst) - dist2(b.inst));
     let extra = 0;
-    const cap = this.budget * 0.5;
+    this.outgoingCount = 0;
+    const cap = this.budget * 0.8;
     const inst = this.inst;
     for (const og of outgoing) {
       if (extra >= cap) break;
@@ -201,7 +209,8 @@ export class LodBuilder {
       const px = inst[15] * tRef, py = inst[16] * tRef;
       inst[17] = px - Math.floor(px); inst[18] = py - Math.floor(py);
       this.push(og.bucket, inst, -1);
-      extra += 1 << og.bucket;
+      extra += bucketSize(og.bucket);
+      this.outgoingCount++;
     }
   }
 
@@ -306,8 +315,8 @@ export class LodBuilder {
       }
       if (glows) this.pushGlow(cx, cy, cz, size, d, dEff, info, youngFraction(arm, tRef));
       if (K < 1) continue;
-      K = Math.min(K, 1 << (NUM_BUCKETS - 1));
-      const b = Math.min(NUM_BUCKETS - 1, Math.max(0, Math.ceil(Math.log2(K))));
+      K = Math.min(K, bucketSize(NUM_BUCKETS - 1));
+      const b = bucketFor(K);
       // dérive azimutale des étoiles du disque dans le référentiel du motif
       const Rc = Math.sqrt(cx * cx + cy * cy);
       const diskFrac = (info.n[1] + info.n[2]) / info.total;

@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import * as P from '../galaxy/params';
 import type { LodStats } from '../galaxy/lod';
 import type { FlyControls } from '../controls';
-import type { Probe } from '../galaxy/probe';
-import { PHASE, PHASE_NAMES } from '../galaxy/stellar';
+import type { ProbeClient } from '../galaxy/probeclient';
+import { PHASE_NAMES } from '../galaxy/stellar';
 import type { StarSystem } from '../galaxy/system';
 import type { SelectionManager } from './selection';
 
@@ -63,7 +63,7 @@ export class Hud {
   visitRequested = false;
   orbitRequested = false;
   /** recherche demandée : prédicat sur l'état stellaire */
-  findRequested: ((st: { phase: number; L: number }, mass: number) => boolean) | null = null;
+  findRequested: string | null = null;
 
   constructor(private state: AppState, private lod: { stats: LodStats; glow: { count: number } }, private controls: FlyControls, private selection: SelectionManager) {
     this.buildPanel();
@@ -76,16 +76,16 @@ export class Hud {
     this.selEl.append(this.selTitle, this.selBody, this.selBtns);
     // recherche d'astres remarquables autour de la caméra (noeud courant + voisins, ~1 pc³ à 200 pc³)
     const find = document.getElementById('find')!;
-    const mkFind = (label: string, pred: (st: { phase: number; L: number }, mass: number) => boolean) => { const b = document.createElement('button'); b.textContent = label; b.onclick = () => { this.findRequested = pred; }; find.append(b); };
+    const mkFind = (label: string, pred: string) => { const b = document.createElement('button'); b.textContent = label; b.onclick = () => { this.findRequested = pred; }; find.append(b); };
     const t = document.createElement('div'); t.textContent = 'trouver près d\'ici :'; t.style.marginBottom = '2px'; find.append(t);
-    mkFind('trou noir', (st) => st.phase === PHASE.BLACK_HOLE);
-    mkFind('étoile à neutrons', (st) => st.phase === PHASE.NEUTRON_STAR);
-    mkFind('naine blanche', (st) => st.phase === PHASE.WHITE_DWARF);
-    mkFind('géante', (st) => st.phase === PHASE.GIANT || st.phase === PHASE.SUPERGIANT);
-    mkFind('néb. planétaire', (st) => st.phase === PHASE.PLANETARY_NEBULA);
-    mkFind('supernova', (st) => st.phase === PHASE.SUPERNOVA);
-    mkFind('naine brune', (st) => st.phase === PHASE.BROWN_DWARF);
-    mkFind('étoile massive', (st, m) => m > 8 && st.phase <= PHASE.SUPERGIANT && st.phase >= PHASE.MAIN_SEQUENCE);
+    mkFind('trou noir', 'bh');
+    mkFind('étoile à neutrons', 'ns');
+    mkFind('naine blanche', 'wd');
+    mkFind('géante', 'giant');
+    mkFind('néb. planétaire', 'pn');
+    mkFind('supernova', 'sn');
+    mkFind('naine brune', 'bd');
+    mkFind('étoile massive', 'massive');
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
       this.pressed.add(e.code);
@@ -133,7 +133,7 @@ export class Hud {
   }
   private refreshers: (() => void)[] = [];
 
-  handleKeys(controls: FlyControls, probe: Probe): void {
+  handleKeys(controls: FlyControls, probe: ProbeClient): void {
     const s = this.state;
     const p = this.pressed;
     if (p.has('KeyX')) this.pickRequested = true;
@@ -193,7 +193,7 @@ export class Hud {
     this.marker.style.top = `${((1 - v.y) / 2) * innerHeight}px`;
   }
 
-  update(s: AppState, camPat: THREE.Vector3, probe: Probe, info: THREE.WebGLRenderer['info'], system: StarSystem | null): void {
+  update(s: AppState, camPat: THREE.Vector3, probe: ProbeClient, info: THREE.WebGLRenderer['info'], system: StarSystem | null): void {
     this.frames++;
     const now = performance.now();
     if (this.noticeUntil && now > this.noticeUntil) { this.noticeEl.style.display = 'none'; this.noticeUntil = 0; }

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import starVert from './shaders/star.vert.glsl?raw';
 import starFrag from './shaders/star.frag.glsl?raw';
 import { vertexShader, fragmentShader, imfUniforms, dustUniforms } from './shaderlib';
-import { FLOATS_PER_INSTANCE, NUM_BUCKETS } from '../galaxy/lod';
+import { FLOATS_PER_INSTANCE, NUM_BUCKETS, bucketSize } from '../galaxy/lod';
 import { NBINS } from '../galaxy/bins';
 import { VIS_NL } from '../galaxy/visq';
 
@@ -38,7 +38,7 @@ export class StarRenderer {
         uTRef: { value: 13000 },
         uFluxMin: { value: 1e-6 },
         uNow: { value: 0 },
-        uFade: { value: 0.6 },
+        uFade: { value: 0.8 },
         uExposure: { value: 1 },
         uPixelScale: { value: 1000 },
         uMaxSize: { value: 48 },
@@ -56,7 +56,7 @@ export class StarRenderer {
       transparent: true,
     });
     for (let b = 0; b < NUM_BUCKETS; b++) {
-      const count = 1 << b;
+      const count = bucketSize(b);
       const geo = new THREE.InstancedBufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count), 1));
       const buf = new THREE.InstancedInterleavedBuffer(new Float32Array(FLOATS_PER_INSTANCE * 64), FLOATS_PER_INSTANCE);

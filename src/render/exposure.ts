@@ -11,6 +11,7 @@ export class ExposurePass extends Pass {
   private mat: THREE.RawShaderMaterial;
   private pixels = new Float32Array(N * N * 4);
   private frame = 0;
+  private reading = false;
   /** luminance mesurée (moyenne des 20 % de blocs les plus lumineux) à l'exposition courante */
   measured = 0;
   target = 0.16;
@@ -42,13 +43,18 @@ export class ExposurePass extends Pass {
 
   render(renderer: THREE.WebGLRenderer, _write: THREE.WebGLRenderTarget, read: THREE.WebGLRenderTarget): void {
     this.frame++;
-    if (this.frame % 3 !== 0) return;
+    if (this.frame % 3 !== 0 || this.reading) return;
     this.mat.uniforms.tDiffuse.value = read.texture;
     const prev = renderer.getRenderTarget();
     renderer.setRenderTarget(this.rt);
     this.quad.render(renderer);
-    renderer.readRenderTargetPixels(this.rt, 0, 0, N, N, this.pixels);
     renderer.setRenderTarget(prev);
+    // relecture asynchrone (pas de synchronisation GPU bloquante)
+    this.reading = true;
+    renderer.readRenderTargetPixelsAsync(this.rt, 0, 0, N, N, this.pixels).then(() => { this.reading = false; this.measure(); }, () => { this.reading = false; });
+  }
+
+  private measure(): void {
     const lum: number[] = [];
     for (let i = 0; i < N * N; i++) lum.push(this.pixels[i * 4]);
     lum.sort((a, b) => b - a);

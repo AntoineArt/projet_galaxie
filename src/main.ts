@@ -12,7 +12,7 @@ import { FarField } from './render/farfield';
 import { FlyControls } from './controls';
 import { Hud } from './ui/hud';
 import { ExposurePass } from './render/exposure';
-import { Probe } from './galaxy/probe';
+import { ProbeClient } from './galaxy/probeclient';
 import { Objects } from './render/objects';
 import { GlowRenderer } from './render/glow';
 import { Galaxies } from './render/galaxies';
@@ -24,7 +24,7 @@ import { buildSolarSystem, SUN_AGE, SUN_ID } from './galaxy/solar';
 import { stellarState } from './galaxy/stellar';
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); // au-delà, le post-traitement plein écran domine le coût
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1;
@@ -83,7 +83,7 @@ const controls = new FlyControls(renderer.domElement);
 controls.position.set(-9000, -32000, 22000);
 controls.lookAt(new THREE.Vector3(0, 0, 0));
 controls.speed = 3000;
-const probe = new Probe(lodLocal);
+const probe = new ProbeClient(lodLocal, lod);
 const selection = new SelectionManager(probe, objects, systemR);
 (window as unknown as { galaxy: { selection: unknown } }).galaxy.selection = selection;
 const hud = new Hud(state, lod, controls, selection);
@@ -95,8 +95,7 @@ controls.onClick = (x, y) => {
   const cm = Math.cos(-th), sm = Math.sin(-th);
   const pp = controls.position;
   const cp = new THREE.Vector3(cm * pp.x - sm * pp.y, sm * pp.x + cm * pp.y, pp.z);
-  selection.pick(x, y, camera, controls.position, cp, th, state.time, lod.fluxMin);
-  controls.stopOrbit();
+  selection.pick(x, y, camera, controls.position, cp, th, state.time, lod.fluxMin).then(() => controls.stopOrbit());
 };
 (window as unknown as { galaxy: { probe: unknown; systemR: unknown } }).galaxy.probe = probe;
 (window as unknown as { galaxy: { probe: unknown; systemR: unknown } }).galaxy.systemR = systemR;
@@ -121,6 +120,8 @@ function needRebuild(): boolean {
   if (controls.quaternion.angleTo(lastQuat) > 0.08) return true;
   if (lod.budget !== state.budget) return true;
   if (!lod.stats.converged && !lod.inFlight) return true;
+  // fondu terminé : reconstruire une fois pour évacuer les noeuds sortants (sinon ils coûtent des sommets à vide)
+  if (lod.stats.outgoing > 0 && !lod.inFlight && performance.now() - lod.resultAt > 900) return true;
   return false;
 }
 let smallestNode = 64;
@@ -157,6 +158,8 @@ lod.onResult = () => {
 // --- boucle
 let last = performance.now();
 const anchorRel = new THREE.Vector3();
+const perfLog: number[] = [];
+(window as unknown as { galaxy: { perfLog: number[] } }).galaxy.perfLog = perfLog;
 function frame(): void {
   requestAnimationFrame(frame);
   const now = performance.now();
@@ -239,14 +242,15 @@ function frame(): void {
   probe.refreshSelected(camPat, state.time); // suivi exact chaque frame (dérive, évolution)
   if (hud.pickRequested) {
     hud.pickRequested = false;
-    selection.pick(innerWidth / 2, innerHeight / 2, camera, controls.position, camPat, theta, state.time, lod.fluxMin);
-    controls.stopOrbit();
+    selection.pick(innerWidth / 2, innerHeight / 2, camera, controls.position, camPat.clone(), theta, state.time, lod.fluxMin).then(() => controls.stopOrbit());
   }
   if (hud.findRequested) {
     const pred = hud.findRequested; hud.findRequested = null;
-    const found = probe.findNearest(camPat, state.time, pred, 1) ?? probe.findNearest(camPat, state.time, pred, 2);
-    if (found) { selection.current = { kind: 'star', star: found }; controls.stopOrbit(); }
-    hud.notice(found ? '' : 'rien de tel dans les 125 noeuds autour de la caméra (~300 pc)');
+    hud.notice('recherche…');
+    probe.findNearest(camPat.clone(), state.time, pred, 2).then((found) => {
+      if (found) { selection.current = { kind: 'star', star: found }; controls.stopOrbit(); }
+      hud.notice(found ? '' : 'rien de tel dans les 125 noeuds autour de la caméra (~300 pc)');
+    });
   }
   // position monde de la sélection (suivie chaque frame : les astres bougent avec le temps)
   selPosValid = selection.worldPos(controls.position, theta, selPos) !== null;
@@ -287,6 +291,8 @@ function frame(): void {
   } else { system = null; su.uSkip.value.set(-1, -1, -1); }
   systemR.update(system, near ? near.pos : camPat, theta, controls.position, camera, viewRot, state.time, state.exposure, pixelScale, state.showOrbits);
   hud.update(state, camPat, probe, renderer.info, system);
+  perfLog.push(performance.now() - now);
+  if (perfLog.length > 2000) perfLog.splice(0, 1000);
 }
 
 addEventListener('resize', () => {

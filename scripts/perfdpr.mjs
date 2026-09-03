@@ -1,0 +1,20 @@
+import { chromium } from 'playwright';
+const dpr = +(process.argv[2] ?? 2);
+const browser = await chromium.launch({ args: ['--use-angle=metal', '--ignore-gpu-blocklist', '--enable-gpu', '--disable-frame-rate-limit', '--disable-gpu-vsync'], headless: true });
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: dpr });
+await page.goto('http://localhost:5173/' + (process.env.QS ?? ''), { waitUntil: 'load' });
+await page.waitForFunction(() => !document.getElementById('loading'), null, { timeout: 60000 });
+const measure = async (label, setup) => {
+  await page.evaluate(setup);
+  await page.waitForTimeout(2000);
+  const fps = await page.evaluate(() => new Promise((res) => { let n = 0; const t0 = performance.now(); const f = () => { n++; if (performance.now() - t0 < 3000) requestAnimationFrame(f); else res((n * 1000) / (performance.now() - t0)); }; requestAnimationFrame(f); }));
+  console.log(`dpr ${dpr}`, label.padEnd(30), fps.toFixed(1), 'fps');
+};
+await page.keyboard.press('KeyR');
+await measure('système solaire (warmup)', () => {});
+await measure('système solaire', () => {});
+await measure('sans bloom', () => { galaxy.state.bloom = 0; });
+await measure('budget 5e5', () => { galaxy.state.bloom = 0.55; galaxy.state.budget = 5e5; });
+await page.keyboard.press('KeyG');
+await measure('vue galaxie', () => { galaxy.state.budget = 1.5e6; });
+await browser.close();

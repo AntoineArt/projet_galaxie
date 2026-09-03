@@ -76,8 +76,16 @@ de binaires croissante avec la masse), planètes (rocheuses, super-terres, géan
 joviennes chaudes) placées par rapport à la ligne des glaces, lunes (limite de Hill), anneaux,
 ceintures d'astéroïdes et de Kuiper. Orbites képlériennes en double précision côté CPU
 (`render/system.ts`), disques stellaires résolus, planètes et lunes éclairées avec phases et surfaces
-procédurales, trous noirs (ombre et anneau de photons). L'étoile correspondante est retirée du rendu
+procédurales (corps opaques), trous noirs (géodésiques : disque d'accrétion lentillé, Doppler, ombre). L'étoile correspondante est retirée du rendu
 LOD (`uSkip`).
+
+### Système solaire
+
+À la position du Soleil (touche R : 30 UA, au-dessus de l'écliptique), le système est le vrai
+(`solar.ts`) : huit planètes, Pluton, Cérès, lunes principales (Lune, Phobos, Deimos, galiléennes,
+Titan, Rhéa, Encelade, Titania, Obéron, Triton, Charon), anneaux de Saturne et d'Uranus, ceinture
+d'astéroïdes et de Kuiper, Halley, Hale-Bopp, Encke. Éléments orbitaux J2000, phases ramenées à
+"aujourd'hui" (13 Ga), le Soleil a 4,6 Ga et évolue avec le temps.
 
 ### Sélection et visite
 
@@ -85,6 +93,14 @@ Clic sur un astre (étoile, planète, lune, compagnon, amas, nébuleuse, Sgr A*)
 boutons Visiter (téléportation à distance adaptée puis orbite) et Orbiter (glisser pour tourner,
 molette pour s'approcher). Le panneau "trouver près d'ici" cherche dans les 125 noeuds voisins un trou
 noir, une étoile à neutrons, une naine blanche, une géante, une nébuleuse planétaire, une supernova...
+
+### Fluidité
+
+Le thread principal ne fait que du rendu : parcours LOD, recherche de l'étoile la plus proche,
+sélection au clic et recherches d'astres remarquables tournent dans le worker (`lod.worker.ts`,
+`probeclient.ts`) ; le suivi de la sélection est O(1) (`starById`). Relecture GPU de
+l'auto-exposition asynchrone. Buckets de rendu en racine de 2 (gaspillage ~12 %), noeuds sortants
+évacués après le fondu, seuil de flux à hystérésis large, ratio de pixels plafonné à 1,5.
 
 ### Autres astres
 

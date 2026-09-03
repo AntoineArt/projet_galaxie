@@ -23,9 +23,9 @@ out vec2 vUv; out vec3 vColor; out float vIntensity; out float vType; out vec3 v
 void main() {
   float d = max(length(aRel), 1e-12);
   float px = aRadius / d * uPixelScale;
-  float minPx = aType > 3.5 ? 2.0 : (aType > 2.5 ? 6.0 : (aType > 0.5 ? 1.5 : 1.0));
+  float minPx = aType > 3.5 ? 2.0 : (aType > 2.5 ? 3.0 : (aType > 0.5 ? 1.5 : 1.0));
   float r = max(aRadius, minPx * d / uPixelScale);
-  float ext = aType > 3.5 ? 14.0 : (aType > 0.5 ? (aType > 2.5 ? 2.5 : 1.0) : 3.0); // étoile : couronne ; trou noir : halo ; pulsar : faisceaux
+  float ext = aType > 2.5 ? 14.0 : (aType > 0.5 ? 1.0 : 3.0); // étoile : couronne ; trou noir : disque lentillé ; pulsar : faisceaux
   vec4 v = uView * vec4(aRel, 1.0);
   v.xy += position * r * ext;
   gl_Position = uProj * v;
@@ -34,7 +34,7 @@ void main() {
   float rPx = max(px, minPx);
   vIntensity = aIntensity / (3.1416 * rPx * rPx);
   if (aType > 0.5 && aType < 2.5) vIntensity = clamp(vIntensity, 0.6, 1.4); // planètes : plancher de visibilité (marqueur), plafond (pas d'éblouissement)
-  if (aType > 2.5 && aType < 3.5) vIntensity = 0.55; // trou noir : anneau de photons à brillance fixe
+  if (aType > 2.5 && aType < 3.5) vIntensity = 1.0; // trou noir : disque d'accrétion à brillance fixe
   if (aType > 3.5) vIntensity = 1.0;
   vType = aType;
   vLightView = (uView * vec4(aLight, 0.0)).xyz;
@@ -67,14 +67,60 @@ void main() {
     return;
   }
   if (vType > 2.5) {
-    // trou noir : ombre (opaque) entourée d'un anneau de photons et d'un halo de lentille
-    float r = sqrt(r2);
-    if (r > 2.5) discard;
-    float shadow = 1.0 - smoothstep(0.96, 1.0, r);
-    float ring = exp(-pow((r - 1.08) / 0.05, 2.0)) * 2.5 + exp(-pow((r - 1.3) / 0.3, 2.0)) * 0.5;
-    float halo = r > 1.0 ? 0.06 * exp(-(r - 1.0) * 2.0) : 0.0;
-    vec3 glow = vColor * (ring + halo) * vIntensity;
-    fragColor = vec4(glow, max(shadow, 0.0));
+    // trou noir de Schwarzschild : intégration des géodésiques nulles (a = -1.5 h^2 r / |r|^5, r_s = 1),
+    // disque d'accrétion de 3 à 11 r_s vu incliné, images primaire et secondaire, effet Doppler, ombre opaque.
+    vec2 uv = vUv; // en r_s (le quad couvre +/- 14 r_s)
+    float b = length(uv);
+    if (b > 13.5) discard;
+    // plan du rayon : e_z = ligne de visée (vers le trou noir), e_r = direction de l'offset écran
+    vec3 ez = vec3(0.0, 0.0, 1.0);
+    vec3 er = b > 1e-4 ? vec3(uv / b, 0.0) : vec3(1.0, 0.0, 0.0);
+    // disque incliné de 75° (normale dans le plan (y, z) de la vue), tourne lentement
+    float incl = 1.31;
+    vec3 n = vec3(0.12 * sin(uNow * 0.05), sin(incl), cos(incl)); // normale à 75° de la ligne de visée
+    n = normalize(n);
+    float h2 = b * b;
+    vec2 pos = vec2(b, -40.0); // (composante er, composante ez)
+    vec2 vel = vec2(0.0, 1.0);
+    vec3 acc = vec3(0.0);
+    float captured = 0.0;
+    float prevSide = dot(pos.x * er + pos.y * ez, n);
+    float dt = 0.35;
+    for (int i = 0; i < 260; i++) {
+      float r2i = dot(pos, pos);
+      float ri = sqrt(r2i);
+      if (ri < 1.0) { captured = 1.0; break; }
+      if (ri > 45.0 && pos.y > 0.0) break;
+      // pas adaptatif : fin près du trou noir
+      float step = dt * clamp(ri * 0.2, 0.06, 1.0);
+      vec2 a = -1.5 * h2 * pos / (r2i * r2i * ri);
+      vel += a * step;
+      pos += vel * step;
+      vec3 p3 = pos.x * er + pos.y * ez;
+      float side = dot(p3, n);
+      if (side * prevSide < 0.0) {
+        // traversée du plan du disque : point d'intersection interpolé
+        vec3 pPrev = p3 - (vel.x * er + vel.y * ez) * step;
+        float f = prevSide / (prevSide - side);
+        vec3 pc = mix(pPrev, p3, f);
+        float rd = length(pc);
+        p3 = pc;
+        if (rd > 3.0 && rd < 11.0) {
+          vec3 vdir = normalize(cross(n, p3)); // rotation képlérienne
+          float beta = 0.55 / sqrt(rd / 3.0);
+          float dop = 1.0 / (1.0 - beta * dot(vdir, -ez)); // vers la caméra
+          float dop3 = dop * dop * dop;
+          float emis = pow(3.0 / rd, 2.5) * smoothstep(3.0, 3.6, rd) * smoothstep(11.0, 9.0, rd);
+          vec3 hot = vec3(1.0, 0.85, 0.6);
+          vec3 shifted = mix(vec3(1.0, 0.45, 0.2), vec3(0.75, 0.85, 1.0), clamp((dop - 0.7) * 1.4, 0.0, 1.0));
+          acc += hot * shifted * emis * dop3 * 0.7;
+        }
+      }
+      prevSide = side;
+    }
+    vec3 glow = acc * vIntensity;
+    // anneau de photons résiduel (les rayons capturés près de b ~ 2,6 sont brillants dans le disque)
+    fragColor = vec4(min(glow, 12.0), captured);
     return;
   }
   if (vType > 0.5) {
@@ -293,7 +339,7 @@ export class SystemRenderer {
       if (b.kind === 'star' || b.kind === 'companion') {
         const st = b.kind === 'star' ? P : system.companion!.state;
         color = starColor(st);
-        if (st.phase === PHASE.BLACK_HOLE) { type = 3; L = 1; radius = 2.6 * 9.6e-14 * (b.kind === 'star' ? system.mass : system.companion!.mass) * 3; label = 'trou noir'; }
+        if (st.phase === PHASE.BLACK_HOLE) { type = 3; L = 1; radius = 9.6e-14 * (b.kind === 'star' ? system.mass : system.companion!.mass) * 3; label = 'trou noir'; } // r_s (x3 pour la visibilité)
         else if (st.phase === PHASE.NEUTRON_STAR) { type = 4; L = 1; label = 'pulsar'; }
         else { L = st.L; label = b.kind === 'star' ? 'étoile' : 'compagnon'; }
       } else if (b.kind === 'comet') {
