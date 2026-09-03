@@ -25,6 +25,8 @@ export class Objects {
   group = new THREE.Group();
   globulars: GlobularInfo[] = [];
   pickables: Pickable[] = [];
+  /** activité du noyau (0 : quiescent, 1 : quasar) */
+  agnActivity = 0;
   private clouds: Cloud[] = [];
   private haloPop: PopTable;
   private tmp = new Float32Array(4);
@@ -88,7 +90,7 @@ export class Objects {
         this.pickables.push({ kind, pos: new THREE.Vector3(x, y, z), radius: rad[k], info: [`rayon ${rad[k].toFixed(0)} pc, ${(L[k] / 1e3).toFixed(0)} k L☉`, kind === 'région HII' ? 'gaz ionisé par des étoiles OB jeunes (Hα)' : kind === 'nébuleuse par réflexion' ? 'poussière éclairée par des étoiles bleues' : 'gaz chaud, raies interdites [OIII]'] });
         k++;
       }
-      this.clouds.push(this.makeCloud(pos.subarray(0, k * 3), L.subarray(0, k), col.subarray(0, k * 3), rad.subarray(0, k), 1, 160));
+      this.clouds.push(this.makeCloud(pos.subarray(0, k * 3), L.subarray(0, k), col.subarray(0, k * 3), rad.subarray(0, k), 2, 160));
     }
 
     // --- amas ouverts jeunes dans les bras (population jeune, dissous après ~300 Ma : rendus fixes, lumière jeune)
@@ -130,6 +132,19 @@ export class Objects {
       const col = new Float32Array([1.0, 0.5, 0.2, 0.6, 0.4, 1.0]);
       const rad = new Float32Array([0.3, 3]);
       this.clouds.push(this.makeCloud(pos, L, col, rad, 1, 64));
+      // phase quasar (noyau actif) : disque d'accrétion très lumineux + jets bipolaires ; échelle temporelle dans update()
+      const jn = 42;
+      const jpos = new Float32Array(jn * 3), jL = new Float32Array(jn), jcol = new Float32Array(jn * 3), jrad = new Float32Array(jn);
+      for (let i = 0; i < jn; i++) {
+        const side = i % 2 === 0 ? 1 : -1, k = Math.floor(i / 2);
+        const z = side * (k === 0 ? 0 : 40 * Math.pow(1.3, k)); // le long de l'axe, jusqu'à ~8 kpc (lobes)
+        jpos[i * 3 + 2] = z;
+        jL[i] = k === 0 ? 2e12 : 8e10 / (1 + k * 0.15);
+        jrad[i] = k === 0 ? 8 : 20 + Math.abs(z) * 0.3;
+        const blue = k === 0 ? [1.0, 0.85, 0.6] : [0.5, 0.65, 1.0];
+        jcol[i * 3] = blue[0]; jcol[i * 3 + 1] = blue[1]; jcol[i * 3 + 2] = blue[2];
+      }
+      this.clouds.push(this.makeCloud(jpos, jL, jcol, jrad, 1, 200));
     }
     for (const c of this.clouds) this.group.add(c.points);
   }
@@ -148,7 +163,7 @@ export class Objects {
         uProj: { value: new THREE.Matrix4() }, uView: { value: new THREE.Matrix4() },
         uCamPat: { value: new THREE.Vector3() }, uTheta: { value: 0 },
         uExposure: { value: 1 }, uPixelScale: { value: 1000 }, uMaxSize: { value: maxSize },
-        uLumScale: { value: 1 }, uSoft: { value: soft },
+        uLumScale: { value: 1 }, uSoft: { value: Math.min(soft, 1) }, uProfile: { value: soft }, uDebug: { value: 0 },
         ...dustUniforms(),
       },
       blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, transparent: true,
@@ -168,7 +183,10 @@ export class Objects {
     const haloL = this.tmp[0];
     const diskOn = Math.min(1, Math.max(0, (time - 3000) / 1000));
     const globOn = Math.min(1, Math.max(0, (time - 300) / 500));
-    const scales = [haloL * globOn, diskOn, diskOn, 1];
+    // noyau actif : phase quasar centrée sur 1,5 Ga (largeur ~0,5 Ga), réactivations brèves ensuite
+    const agn = Math.exp(-Math.pow((time - 1500) / 500, 2)) + 0.03 * Math.exp(-Math.pow((time - 6200) / 80, 2)) + 0.02 * Math.exp(-Math.pow((time - 10400) / 60, 2));
+    this.agnActivity = agn;
+    const scales = [haloL * globOn, diskOn, diskOn, 1 + 2e5 * agn, agn];
     this.clouds.forEach((c, i) => {
       const u = c.mat.uniforms;
       u.uProj.value.copy(camera.projectionMatrix);

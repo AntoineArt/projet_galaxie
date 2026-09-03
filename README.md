@@ -62,13 +62,36 @@ Là où le champ lointain devient granuleux (centre galactique, voisinage imméd
 l'octree situé à moins de 4,5 fois sa taille rend sa lumière résiduelle sous forme de quad gaussien
 (`glow.ts`), avec fondu croisé vers le champ lointain. La résolution suit donc l'octree.
 
+### Anti-popping
+
+Trois mécanismes (`lod.ts`, `star.vert.glsl`) : seuil de flux doux (les étoiles au seuil s'éteignent
+progressivement), bonus de proximité (seuil abaissé jusqu'à ×25 sous 60 pc, coût borné par la densité
+locale), et fondu croisé par noeud entre deux reconstructions (le worker garde les noeuds sortants une
+construction de plus, les entrants apparaissent en 0,6 s).
+
 ### Systèmes stellaires
 
 À moins de 0,05 pc d'une étoile, son système est généré (`system.ts`) : compagnon éventuel (fraction
 de binaires croissante avec la masse), planètes (rocheuses, super-terres, géantes de glace et de gaz,
-joviennes chaudes) placées par rapport à la ligne des glaces, orbites képlériennes calculées en double
-précision côté CPU (`render/system.ts`), disques stellaires résolus avec assombrissement centre-bord,
-planètes éclairées avec phases. L'étoile correspondante est retirée du rendu LOD (`uSkip`).
+joviennes chaudes) placées par rapport à la ligne des glaces, lunes (limite de Hill), anneaux,
+ceintures d'astéroïdes et de Kuiper. Orbites képlériennes en double précision côté CPU
+(`render/system.ts`), disques stellaires résolus, planètes et lunes éclairées avec phases et surfaces
+procédurales, trous noirs (ombre et anneau de photons). L'étoile correspondante est retirée du rendu
+LOD (`uSkip`).
+
+### Sélection et visite
+
+Clic sur un astre (étoile, planète, lune, compagnon, amas, nébuleuse, Sgr A*) : fiche dans le panneau,
+boutons Visiter (téléportation à distance adaptée puis orbite) et Orbiter (glisser pour tourner,
+molette pour s'approcher). Le panneau "trouver près d'ici" cherche dans les 125 noeuds voisins un trou
+noir, une étoile à neutrons, une naine blanche, une géante, une nébuleuse planétaire, une supernova...
+
+### Autres astres
+
+Rémanents de supernova et nébuleuses planétaires : coquilles en expansion rendues dans le shader
+d'étoiles (loi de Sedov, structure par bruit). Noyau actif : phase quasar du trou noir central entre
+0,8 et 2,5 Ga (disque d'accrétion 2×10¹² L☉, jets bipolaires de 8 kpc), réactivations brèves à 6,2 et
+10,4 Ga. Régions HII, nébuleuses par réflexion et [OIII] aux formes irrégulières.
 
 ### Physique
 
@@ -90,12 +113,14 @@ densité stationnaire), les autres ont des dates de naissance absolues.
 
 | Touche | Action |
 | --- | --- |
-| ZQSD / WASD, souris (clic) | vol libre, molette : vitesse, Alt : ×5 |
+| ZQSD / WASD | vol libre, molette : vitesse, Alt : ×5 |
+| glisser / clic / L | regarder / sélectionner un astre / capturer la souris |
+| V / O | visiter la sélection / orbiter autour |
 | Espace / Maj | haut / bas |
 | T, [ ] | pause, vitesse du temps (1 jour/s à 1 Ga/s) |
 | 0 | retour à aujourd'hui (13 Ga) |
 | R / G / H | Soleil / vue extérieure / vue de dessus |
-| X / Échap | sélectionner l'étoile visible au réticule (parmi les noeuds traversés par le rayon) / annuler |
+| X / Échap | sélectionner au réticule (souris capturée) / annuler |
 | F | viser l'étoile sélectionnée (sinon la plus proche) |
 | J | sauter à 40 UA de l'étoile sélectionnée ou la plus proche (vue du système) |
 | E | auto-exposition |
